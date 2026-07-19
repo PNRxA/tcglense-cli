@@ -11,7 +11,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::models::User;
 
-pub const DEFAULT_BASE_URL: &str = "http://localhost:8080";
+/// The production TCGLense origin. Override for a self-host or local dev with
+/// `--url` / `TCGLENSE_URL`, or persist one with `tcglense config url <URL>`.
+pub const DEFAULT_BASE_URL: &str = "https://tcglense.com";
 
 /// Stored credential. `Session` is the web/email auth path (email + password →
 /// a short-lived access token plus the opaque refresh token captured from the

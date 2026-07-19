@@ -9,8 +9,9 @@ scripting/piping) and a keyboard-driven terminal UI (for browsing).
 - **Stack:** Rust 2024 · [clap](https://docs.rs/clap) (commands) ·
   [reqwest](https://docs.rs/reqwest) + rustls/ring (HTTP) ·
   [ratatui](https://ratatui.rs) (TUI) · [tokio](https://tokio.rs).
-- **Talks to** the [TCGLense API](https://github.com/PNRxA/tcglense) (default
-  `http://localhost:8080`).
+- **Talks to** the [TCGLense API](https://github.com/PNRxA/tcglense) — defaults to the
+  production origin `https://tcglense.com`; point it at a self-host or local dev with
+  `--url` / `TCGLENSE_URL` or `tcglense config url <URL>`.
 
 ## Install
 
@@ -57,7 +58,7 @@ stored state, pass `--api-key tcgl_…`, `--token <bearer>`, or the matching
 `TCGLENSE_API_KEY` / `TCGLENSE_TOKEN` env vars.
 
 ```sh
-tcglense config url https://tcglense.example.com   # persist the API base URL
+tcglense config url http://localhost:8080          # optional: point at a self-host / local dev
 tcglense login --email you@example.com             # prompts for the password
 tcglense whoami                                    # GET /api/auth/me
 tcglense api-keys create "my laptop" --scope read_write --use-key
@@ -136,7 +137,7 @@ tcglense
 
 | Flag | Env | Meaning |
 |------|-----|---------|
-| `--url <URL>` | `TCGLENSE_URL` | API base URL (default `http://localhost:8080`). |
+| `--url <URL>` | `TCGLENSE_URL` | API base URL (default `https://tcglense.com`). |
 | `--api-key <tcgl_…>` | `TCGLENSE_API_KEY` | Use an API key for this call (not persisted). |
 | `--token <bearer>` | `TCGLENSE_TOKEN` | Use a raw bearer token for this call (not persisted). |
 | `--config <path>` | `TCGLENSE_CONFIG` | Config file location. |

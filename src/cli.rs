@@ -16,7 +16,7 @@ use crate::commands::{auth, catalog, collection, decks, misc, public, wishlist};
 #[derive(Debug, Parser)]
 #[command(name = "tcglense", version, about, long_about = None, propagate_version = true)]
 pub struct Cli {
-    /// API base URL (overrides the stored config; default http://localhost:8080).
+    /// API base URL (overrides the stored config; default https://tcglense.com).
     #[arg(long, global = true, env = "TCGLENSE_URL")]
     pub url: Option<String>,
 
