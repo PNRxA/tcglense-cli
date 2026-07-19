@@ -261,20 +261,18 @@ impl Client {
 
     // -- auth flows ----------------------------------------------------------
 
-    /// Email + password login (the web auth path). Captures the refresh cookie,
-    /// stores the session, and persists it.
-    pub async fn login(
+    /// Exchange a one-time authorization code (from the browser loopback
+    /// redirect) plus its PKCE verifier for a session. Mirrors `login`'s result:
+    /// captures the refresh cookie, stores the session, and persists it. See
+    /// [`crate::weblogin`] for the browser side of the flow.
+    pub async fn cli_token_exchange(
         &self,
-        email: &str,
-        password: &str,
-        captcha: Option<&str>,
+        code: &str,
+        verifier: &str,
     ) -> Result<crate::models::User> {
-        let mut body = serde_json::json!({ "email": email, "password": password });
-        if let Some(c) = captcha {
-            body["captcha_token"] = serde_json::Value::String(c.to_string());
-        }
+        let body = serde_json::json!({ "code": code, "code_verifier": verifier });
         let resp = self
-            .send(Method::POST, "/api/auth/login", &[], Body::Json(body))
+            .send(Method::POST, "/api/auth/cli/token", &[], Body::Json(body))
             .await?;
         self.consume_auth_response(resp).await
     }

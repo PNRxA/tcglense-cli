@@ -43,7 +43,7 @@ pub struct Cli {
 #[derive(Debug, Subcommand)]
 pub enum Command {
     // -- authentication & account --
-    /// Log in with email + password (web auth); stores a refreshable session.
+    /// Sign in through your web browser; stores a refreshable session.
     Login(auth::LoginArgs),
     /// Clear the stored credential (and revoke the session server-side).
     Logout,

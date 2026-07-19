@@ -95,8 +95,8 @@ The CLI supports **both** auth models the API offers:
 
 | Model | How | Notes |
 |-------|-----|-------|
-| **Web session** (email + password) | `tcglense login` | Stores a short-lived access token **and** the opaque refresh token; the CLI silently refreshes on expiry. This is the full-access credential (it can manage API keys). |
-| **API key** (`tcgl_…`) | `tcglense auth key tcgl_…` | Programmatic, per-user; scoped `read` or `read_write`. A read-only key gets `403` on writes. Mint one with `tcglense api-keys create`. |
+| **Web session** (browser sign-in) | `tcglense login` | Opens your browser to the TCGLense sign-in page — the password is entered on the website, never in the terminal — and captures the result on a temporary `127.0.0.1` loopback listener (the OAuth 2.0 native-app flow, RFC 8252, with PKCE). Stores a short-lived access token **and** the opaque refresh token; the CLI silently refreshes on expiry. This is the full-access credential (it can manage API keys). |
+| **API key** (`tcgl_…`) | `tcglense auth key tcgl_…` | Programmatic, per-user; scoped `read` or `read_write`. A read-only key gets `403` on writes. Mint one with `tcglense api-keys create`. Best for headless/CI where no browser is available. |
 
 Credentials are stored in `~/.config/tcglense/config.json` (mode `0600`; override
 with `--config <path>` or `$TCGLENSE_CONFIG`). For a one-off call without touching
@@ -104,13 +104,20 @@ stored state, pass `--api-key tcgl_…`, `--token <bearer>`, or the matching
 `TCGLENSE_API_KEY` / `TCGLENSE_TOKEN` env vars.
 
 ```sh
-tcglense config url http://localhost:8080          # optional: point at a self-host / local dev
-tcglense login --email you@example.com             # prompts for the password
+tcglense login                                     # opens the browser to sign in
+tcglense login --no-browser                        # print the URL instead (headless / SSH)
 tcglense whoami                                    # GET /api/auth/me
 tcglense api-keys create "my laptop" --scope read_write --use-key
 tcglense status                                    # show base URL + credential
 tcglense logout
 ```
+
+`tcglense login` opens `<base-url>/cli-login`, so it targets whichever origin
+`--url` / `TCGLENSE_URL` points at (the production site by default). For local dev,
+point it at the web origin that serves the SPA and proxies `/api` (e.g.
+`tcglense config url http://localhost:5173`), not the bare API port. On a headless
+box, use `--no-browser` and open the printed URL on another device, or authenticate
+with an API key instead.
 
 ## One-shot commands
 
