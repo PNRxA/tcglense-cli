@@ -107,7 +107,8 @@ pub enum Command {
     Wishlist(wishlist::WishlistArgs),
     /// Build and organise decks for a game.
     Decks(decks::DecksArgs),
-    /// Read another user's public collection, profile and decks.
+    /// Read another user's public profile, collection, wish list and decks (and
+    /// copy a public deck into your own).
     Public(public::PublicArgs),
 
     // -- server / meta --

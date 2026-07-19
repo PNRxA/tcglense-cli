@@ -365,6 +365,12 @@ pub struct CollectionVisibility {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WishlistVisibility {
+    pub public: bool,
+    pub handle: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CollectionDropGroup {
     pub slug: Option<String>,
     pub title: String,
@@ -574,6 +580,26 @@ pub struct DeckImportResponse {
     pub matched_cards: i64,
     pub unmatched_cards: i64,
     pub unmatched_sample: Vec<String>,
+}
+
+/// One deck that wants a [`NeededCard`], in the game's cross-deck needed list.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NeededCardDeck {
+    pub id: i64,
+    pub name: String,
+}
+
+/// A card the caller's decks collectively want more copies of than they own.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NeededCard {
+    pub card: Card,
+    /// Total copies the decks want.
+    pub required: i64,
+    /// Copies already in the collection.
+    pub owned: i64,
+    /// Shortfall (`required - owned`, floored at zero).
+    pub needed: i64,
+    pub decks: Vec<NeededCardDeck>,
 }
 
 // ---------------------------------------------------------------------------

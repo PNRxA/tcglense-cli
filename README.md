@@ -149,6 +149,7 @@ tcglense collection mtg products list
 
 # Wish list (mirrors the collection card ops)
 tcglense wishlist mtg set <card-id> --qty 1
+tcglense wishlist mtg visibility set true            # share your wish list publicly
 
 # Decks
 tcglense decks mtg list
@@ -156,11 +157,15 @@ tcglense decks mtg create "Mono-Green Stompy" --format commander
 tcglense decks mtg show <deck-id>
 tcglense decks mtg card <deck-id> set <card-id> --section <section-id> --qty 1
 tcglense decks mtg export <deck-id> --format moxfield-text
+tcglense decks mtg needed --mode card                # cards your decks want but you don't own
 
-# Public sharing (no auth)
+# Public sharing (reads need no auth; `deck … copy` does)
 tcglense public alice-0001 profile
 tcglense public alice-0001 collection mtg summary
+tcglense public alice-0001 collection mtg products list
+tcglense public alice-0001 wishlist mtg summary
 tcglense public alice-0001 decks
+tcglense public alice-0001 deck <deck-id> copy       # clone a public deck into your own
 
 # Server / meta
 tcglense health

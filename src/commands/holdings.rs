@@ -237,28 +237,7 @@ pub async fn products(ctx: &Ctx, s: &Surface, cmd: ProductHoldingCommand) -> Res
             set,
             page,
             page_size,
-        } => {
-            let mut q: Vec<(&str, String)> = Vec::new();
-            push_opt(&mut q, "set", &set);
-            push_opt(&mut q, "page", &page);
-            push_opt(&mut q, "page_size", &page_size);
-            let page: Page<ProductHoldingEntry> = ctx.client.get_json(&base, &q).await?;
-            if ctx.printer.json {
-                ctx.printer.json(&page)?;
-            } else {
-                product_holdings_table(&page.data);
-                ctx.printer.note(format!(
-                    "page {} · {} products total{}",
-                    page.page,
-                    page.total,
-                    if page.has_more {
-                        " · more (--page)"
-                    } else {
-                        ""
-                    }
-                ));
-            }
-        }
+        } => products_list(ctx, s, set, page, page_size).await?,
         ProductHoldingCommand::Get { product_id } => {
             let q: CollectionQuantities = ctx
                 .client
@@ -285,36 +264,8 @@ pub async fn products(ctx: &Ctx, s: &Surface, cmd: ProductHoldingCommand) -> Res
                     .note(format!("Set to {} / {} foil.", q.quantity, q.foil_quantity));
             }
         }
-        ProductHoldingCommand::Summary => {
-            let s: ProductHoldingSummary =
-                ctx.client.get_json(&format!("{base}/summary"), &[]).await?;
-            if ctx.printer.json {
-                ctx.printer.json(&s)?;
-            } else {
-                println!("Unique products : {}", s.unique_products);
-                println!("Total products  : {}", s.total_products);
-                println!("Total value     : {}", output::price(&s.total_value_usd));
-            }
-        }
-        ProductHoldingCommand::Sets => {
-            let body: DataBody<Vec<ProductHoldingSet>> =
-                ctx.client.get_json(&format!("{base}/sets"), &[]).await?;
-            if ctx.printer.json {
-                ctx.printer.json(&body.data)?;
-            } else {
-                let mut t = table(&["Set", "Name", "Unique", "Total", "Value"]);
-                for ps in &body.data {
-                    t.add_row(vec![
-                        ps.code.to_uppercase(),
-                        output::dash(&ps.name),
-                        ps.unique_products.to_string(),
-                        ps.total_products.to_string(),
-                        output::price(&ps.total_value_usd),
-                    ]);
-                }
-                println!("{t}");
-            }
-        }
+        ProductHoldingCommand::Summary => products_summary(ctx, s).await?,
+        ProductHoldingCommand::Sets => products_sets(ctx, s).await?,
         ProductHoldingCommand::Counts { ids } => {
             let body = serde_json::json!({ "ids": ids });
             let resp: DataBody<BTreeMap<String, CollectionQuantities>> = ctx
@@ -323,6 +274,82 @@ pub async fn products(ctx: &Ctx, s: &Surface, cmd: ProductHoldingCommand) -> Res
                 .await?;
             print_counts_map(ctx, &resp.data);
         }
+    }
+    Ok(())
+}
+
+// -- product read helpers (shared with the public, read-only surfaces) -------
+
+pub async fn products_list(
+    ctx: &Ctx,
+    s: &Surface,
+    set: Option<String>,
+    page: Option<u32>,
+    page_size: Option<u32>,
+) -> Result<()> {
+    let mut q: Vec<(&str, String)> = Vec::new();
+    push_opt(&mut q, "set", &set);
+    push_opt(&mut q, "page", &page);
+    push_opt(&mut q, "page_size", &page_size);
+    let page: Page<ProductHoldingEntry> = ctx
+        .client
+        .get_json(&format!("{}/products", s.base), &q)
+        .await?;
+    if ctx.printer.json {
+        ctx.printer.json(&page)?;
+    } else {
+        product_holdings_table(&page.data);
+        ctx.printer.note(format!(
+            "page {} · {} products total{}",
+            page.page,
+            page.total,
+            if page.has_more {
+                " · more (--page)"
+            } else {
+                ""
+            }
+        ));
+    }
+    Ok(())
+}
+
+pub async fn products_summary(ctx: &Ctx, s: &Surface) -> Result<()> {
+    let summary: ProductHoldingSummary = ctx
+        .client
+        .get_json(&format!("{}/products/summary", s.base), &[])
+        .await?;
+    if ctx.printer.json {
+        ctx.printer.json(&summary)?;
+    } else {
+        println!("Unique products : {}", summary.unique_products);
+        println!("Total products  : {}", summary.total_products);
+        println!(
+            "Total value     : {}",
+            output::price(&summary.total_value_usd)
+        );
+    }
+    Ok(())
+}
+
+pub async fn products_sets(ctx: &Ctx, s: &Surface) -> Result<()> {
+    let body: DataBody<Vec<ProductHoldingSet>> = ctx
+        .client
+        .get_json(&format!("{}/products/sets", s.base), &[])
+        .await?;
+    if ctx.printer.json {
+        ctx.printer.json(&body.data)?;
+    } else {
+        let mut t = table(&["Set", "Name", "Unique", "Total", "Value"]);
+        for ps in &body.data {
+            t.add_row(vec![
+                ps.code.to_uppercase(),
+                output::dash(&ps.name),
+                ps.unique_products.to_string(),
+                ps.total_products.to_string(),
+                output::price(&ps.total_value_usd),
+            ]);
+        }
+        println!("{t}");
     }
     Ok(())
 }
