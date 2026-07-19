@@ -14,15 +14,9 @@ use crate::output::apikeys_table;
 
 #[derive(Debug, Args)]
 pub struct LoginArgs {
-    /// Account email (prompted if omitted).
+    /// Print the sign-in URL instead of opening a browser (for headless / SSH use).
     #[arg(long)]
-    pub email: Option<String>,
-    /// Account password (prompted securely if omitted).
-    #[arg(long)]
-    pub password: Option<String>,
-    /// Cloudflare Turnstile token (only if the server has CAPTCHA enabled).
-    #[arg(long)]
-    pub captcha: Option<String>,
+    pub no_browser: bool,
 }
 
 #[derive(Debug, Args)]
@@ -139,23 +133,32 @@ struct MeResponse {
 
 // -- handlers ---------------------------------------------------------------
 
+/// Sign in through the browser: open the site's sign-in page (so the password is
+/// entered on the website, never in the terminal) and capture the result on a
+/// loopback listener. See [`crate::weblogin`] for the OAuth loopback + PKCE flow.
 pub async fn login(ctx: &Ctx, args: LoginArgs) -> Result<()> {
-    let email = match args.email {
-        Some(e) => e,
-        None => prompt_line("Email: ")?,
-    };
-    let password = match args.password {
-        Some(p) => p,
-        None => rpassword::prompt_password("Password: ").context("reading password")?,
-    };
-    let user = ctx
-        .client
-        .login(&email, &password, args.captcha.as_deref())
-        .await?;
+    let flow = crate::weblogin::BrowserLogin::bind().await?;
+    let label = crate::weblogin::client_label();
+    let url = flow.authorize_url(ctx.client.base_url(), &label)?;
+
+    if args.no_browser {
+        println!("To sign in, open this URL in your browser:\n\n  {url}\n");
+    } else {
+        println!("Opening your browser to sign in.");
+        println!("If it doesn't open automatically, visit:\n\n  {url}\n");
+        if let Err(e) = crate::weblogin::open_browser(&url) {
+            eprintln!("(couldn't open a browser automatically: {e})");
+        }
+    }
+    println!("Waiting for you to authorize the sign-in in your browser…");
+
+    let code = flow.wait_for_code().await?;
+    let user = ctx.client.cli_token_exchange(&code, &flow.verifier).await?;
+
     if ctx.printer.json {
         ctx.printer.json(&user)?;
     } else {
-        println!("Logged in as {} (id {}).", user.email, user.id);
+        println!("\nLogged in as {} (id {}).", user.email, user.id);
     }
     Ok(())
 }
@@ -389,15 +392,6 @@ fn print_user(u: &User) {
     println!("Handle     : {}", u.handle.as_deref().unwrap_or("(none)"));
     println!("Currency   : {}", u.currency);
     println!("Member since: {}", u.created_at);
-}
-
-fn prompt_line(label: &str) -> Result<String> {
-    use std::io::Write;
-    print!("{label}");
-    std::io::stdout().flush()?;
-    let mut s = String::new();
-    std::io::stdin().read_line(&mut s)?;
-    Ok(s.trim().to_string())
 }
 
 /// Load the persisted config (used by config-mutating commands elsewhere).

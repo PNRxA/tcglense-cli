@@ -8,6 +8,7 @@ mod models;
 mod output;
 mod tui;
 mod update;
+mod weblogin;
 
 use clap::Parser;
 
