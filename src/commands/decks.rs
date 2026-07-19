@@ -97,7 +97,33 @@ pub enum DecksCommand {
         command: DeckCardCommand,
     },
     /// Enable/disable public sharing of a deck.
-    Visibility { deck_id: i64, public: bool },
+    Visibility {
+        deck_id: i64,
+        #[arg(action = clap::ArgAction::Set)]
+        public: bool,
+    },
+    /// List cards your decks collectively want more copies of than you own.
+    Needed {
+        /// `card` counts any printing of a gameplay card; `printing` reports the
+        /// exact missing printing.
+        #[arg(long, value_enum, default_value_t = NeededMode::Card)]
+        mode: NeededMode,
+    },
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum NeededMode {
+    Card,
+    Printing,
+}
+
+impl NeededMode {
+    fn as_str(self) -> &'static str {
+        match self {
+            NeededMode::Card => "card",
+            NeededMode::Printing => "printing",
+        }
+    }
 }
 
 #[derive(Debug, Subcommand)]
@@ -357,6 +383,7 @@ pub async fn run(ctx: &Ctx, args: DecksArgs) -> Result<()> {
             sections(ctx, &base, deck_id, command).await?
         }
         DecksCommand::Card { deck_id, command } => deck_card(ctx, &base, deck_id, command).await?,
+        DecksCommand::Needed { mode } => needed(ctx, &base, mode).await?,
         DecksCommand::Visibility { deck_id, public } => {
             let body = serde_json::json!({ "public": public });
             let v: DeckVisibility = ctx
@@ -516,6 +543,39 @@ async fn deck_card(ctx: &Ctx, base: &str, deck_id: i64, cmd: DeckCardCommand) ->
             "Card now {} / {} foil in section.",
             result.quantity, result.foil_quantity
         );
+    }
+    Ok(())
+}
+
+async fn needed(ctx: &Ctx, base: &str, mode: NeededMode) -> Result<()> {
+    let body: DataBody<Vec<NeededCard>> = ctx
+        .client
+        .get_json(
+            &format!("{base}/needed"),
+            &[("mode", mode.as_str().to_string())],
+        )
+        .await?;
+    if ctx.printer.json {
+        ctx.printer.json(&body.data)?;
+    } else if body.data.is_empty() {
+        println!("Nothing needed — your collection covers every deck.");
+    } else {
+        let mut t = table(&["Need", "Own", "Want", "Name", "Set", "#", "Decks"]);
+        for n in &body.data {
+            let decks: Vec<&str> = n.decks.iter().map(|d| d.name.as_str()).collect();
+            t.add_row(vec![
+                n.needed.to_string(),
+                n.owned.to_string(),
+                n.required.to_string(),
+                output::truncate(&n.card.name, 32),
+                n.card.set_code.to_uppercase(),
+                n.card.collector_number.clone(),
+                output::truncate(&decks.join(", "), 30),
+            ]);
+        }
+        println!("{t}");
+        ctx.printer
+            .note(format!("{} card(s) needed.", body.data.len()));
     }
     Ok(())
 }

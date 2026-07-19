@@ -1,12 +1,14 @@
 //! Wish-list commands: the collection's "want" twin. Rides the same shared holdings
-//! engine, minus import/sync/export/movers/value-history/visibility (a wish list has
-//! nothing to import and no value chart).
+//! engine, minus import/sync/export/movers/value-history (a wish list has nothing to
+//! import and no value chart). It keeps its own public-sharing visibility, which —
+//! unlike the collection's — has no value-chart/movers toggles.
 
 use anyhow::Result;
 use clap::{Args, Subcommand};
 
 use super::Ctx;
 use super::holdings::{self, ProductHoldingCommand, Surface};
+use crate::models::WishlistVisibility;
 
 #[derive(Debug, Args)]
 pub struct WishlistArgs {
@@ -90,6 +92,22 @@ pub enum WishlistCommand {
         #[command(subcommand)]
         command: ProductHoldingCommand,
     },
+    /// Manage public sharing of this wish list.
+    Visibility {
+        #[command(subcommand)]
+        command: WishlistVisibilityCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum WishlistVisibilityCommand {
+    /// Show whether the wish list is public (and its share handle).
+    Show,
+    /// Make the wish list public (`true`) or private (`false`).
+    Set {
+        #[arg(action = clap::ArgAction::Set)]
+        public: bool,
+    },
 }
 
 pub async fn run(ctx: &Ctx, args: WishlistArgs) -> Result<()> {
@@ -133,5 +151,27 @@ pub async fn run(ctx: &Ctx, args: WishlistArgs) -> Result<()> {
         } => holdings::set_subtypes(ctx, &s, &code, query, page, page_size).await,
         WishlistCommand::Counts { ids } => holdings::batch_counts(ctx, &s, ids).await,
         WishlistCommand::Products { command } => holdings::products(ctx, &s, command).await,
+        WishlistCommand::Visibility { command } => visibility(ctx, &s, command).await,
     }
+}
+
+async fn visibility(ctx: &Ctx, s: &Surface, cmd: WishlistVisibilityCommand) -> Result<()> {
+    let path = format!("{}/visibility", s.base);
+    let v: WishlistVisibility = match cmd {
+        WishlistVisibilityCommand::Show => ctx.client.get_json(&path, &[]).await?,
+        WishlistVisibilityCommand::Set { public } => {
+            let body = serde_json::json!({ "public": public });
+            ctx.client.put_json(&path, body).await?
+        }
+    };
+    if ctx.printer.json {
+        ctx.printer.json(&v)?;
+    } else {
+        println!(
+            "public: {}  ·  handle: {}",
+            v.public,
+            v.handle.as_deref().unwrap_or("(set a username first)")
+        );
+    }
+    Ok(())
 }
