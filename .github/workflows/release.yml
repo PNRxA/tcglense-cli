@@ -1,0 +1,81 @@
+name: Release
+
+# Build the `tcglense` CLI for each OS/arch on its NATIVE runner (no
+# cross-compilation) and attach the archive to the published GitHub Release.
+# `ring` (the rustls crypto backend) ships pregenerated assembly incl. Windows
+# objects, so no nasm/perl toolchain is needed on any runner.
+#
+# Cut a release with `scripts/release.sh` (bumps the version, tags, and publishes
+# the GitHub Release that triggers this workflow).
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.event.release.tag_name || github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  binaries:
+    name: ${{ matrix.target }}
+    # Only attach binaries to a real published Release.
+    if: github.event_name == 'release'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04-arm
+          - target: x86_64-apple-darwin
+            os: macos-13
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release binary
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Package & upload (Unix)
+        if: runner.os != 'Windows'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          asset="tcglense-${TAG}-${{ matrix.target }}.tar.gz"
+          tar -czf "$asset" -C "target/${{ matrix.target }}/release" tcglense
+          gh release upload "$TAG" "$asset" --clobber
+
+      - name: Package & upload (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          $asset = "tcglense-$env:TAG-${{ matrix.target }}.zip"
+          Compress-Archive -Path "target/${{ matrix.target }}/release/tcglense.exe" -DestinationPath $asset
+          gh release upload $env:TAG $asset --clobber
