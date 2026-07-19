@@ -17,7 +17,9 @@ scripting/piping) and a keyboard-driven terminal UI (for browsing).
 
 **Prebuilt binaries** for Linux, macOS, and Windows are attached to every
 [release](https://github.com/PNRxA/tcglense-cli/releases) — download the archive for
-your platform, extract, and put `tcglense` on your `PATH`.
+your platform, extract it (`tar -xzf …` on Unix), and put `tcglense` on your `PATH`.
+On macOS the first launch may be blocked by Gatekeeper — see
+[macOS Gatekeeper warning](#macos-gatekeeper-warning) below.
 
 **From source** (needs [Rust](https://rustup.rs/)):
 
@@ -26,6 +28,50 @@ cargo install --git https://github.com/PNRxA/tcglense-cli   # installs `tcglense
 # or, in a clone:
 cargo build --release        # binary at target/release/tcglense
 ```
+
+### macOS Gatekeeper warning
+
+The macOS release binaries aren't code-signed with an Apple Developer ID or notarized by
+Apple. When you download a release archive **in a browser**, macOS tags it with a
+`com.apple.quarantine` flag, and on macOS 15 (Sequoia) or later the first launch of the
+un-notarized binary is blocked with:
+
+> Apple could not verify “tcglense” is free of malware that may harm your Mac or
+> compromise your privacy.
+
+(macOS 14 and earlier word it *“… can't be opened because the developer cannot be
+verified.”*) This is Gatekeeper reacting to the missing notarization, not a sign that the
+binary is actually unsafe — the source and the release workflow that builds it are public.
+Any one of these gets you running:
+
+- **Extract in a terminal (simplest).** The quarantine flag sits on the downloaded
+  `.tar.gz`; the command-line `tar` tool doesn't copy it onto the extracted files (only
+  Finder's Archive Utility does), so the binary is never quarantined and Gatekeeper stays
+  quiet:
+
+  ```sh
+  tar -xzf ~/Downloads/tcglense-*-aarch64-apple-darwin.tar.gz
+  ./tcglense --version
+  ```
+
+- **Already extracted by double-clicking?** Strip the quarantine flag off the binary:
+
+  ```sh
+  xattr -d com.apple.quarantine ./tcglense   # or: xattr -c ./tcglense
+  ```
+
+  (`xattr -d` prints a harmless “No such xattr” if the flag was never set; `xattr -c`
+  clears every extended attribute and never complains.)
+
+- **Prefer clicking?** Try to run `./tcglense` once so it gets blocked, then open **System
+  Settings → Privacy & Security**, scroll to **Security**, and click **Open Anyway** next
+  to the “tcglense was blocked” message (authenticate, then run it again). On Sequoia the
+  old right-click → *Open* shortcut was removed, so this button is the GUI route.
+
+- **Build or self-update instead.** Binaries macOS never sees as “downloaded from the
+  internet” are never quarantined, so these skip the warning entirely:
+  `cargo install --git https://github.com/PNRxA/tcglense-cli` (compiled locally), and
+  `tcglense update`, whose self-updater fetches over HTTPS rather than through a browser.
 
 ## Updating
 
