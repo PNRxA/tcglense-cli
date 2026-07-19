@@ -15,9 +15,9 @@ use crate::models::User;
 /// `--url` / `TCGLENSE_URL`, or persist one with `tcglense config url <URL>`.
 pub const DEFAULT_BASE_URL: &str = "https://tcglense.com";
 
-/// Stored credential. `Session` is the web/email auth path (email + password →
-/// a short-lived access token plus the opaque refresh token captured from the
-/// `tcglense_refresh` cookie); `ApiKey` is a `tcgl_` programmatic key.
+/// Stored credential. `Session` is the browser sign-in path (the loopback + PKCE
+/// web flow → a short-lived access token plus the opaque refresh token captured
+/// from the `tcglense_refresh` cookie); `ApiKey` is a `tcgl_` programmatic key.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Auth {
