@@ -89,76 +89,84 @@ impl BrowserLogin {
             })?
     }
 
-    /// Accept loopback connections until one carries the `/callback` redirect.
+    /// Accept loopback connections concurrently until one carries a valid
+    /// `/callback` redirect. Each connection is handled in its own task, so a
+    /// stray, slow, or malformed request (a browser pre-connect, a favicon probe,
+    /// or a local process poking the port) can neither block nor abort the login —
+    /// only the outer [`CALLBACK_TIMEOUT`] is fatal. The first connection carrying
+    /// our `state` plus a `code` (or an `error`) resolves the flow.
     async fn accept_callback(&self) -> Result<String> {
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<Result<String>>(4);
         loop {
-            let (stream, _) = self
-                .listener
-                .accept()
-                .await
-                .context("failed to accept the login redirect connection")?;
-            if let Some(result) = self.handle_connection(stream).await? {
-                // A definite outcome (the code, or a hard error) — stop listening.
-                return result;
+            tokio::select! {
+                // The first definitive outcome from any handled connection wins.
+                Some(outcome) = rx.recv() => return outcome,
+                accepted = self.listener.accept() => {
+                    let (stream, _) = accepted
+                        .context("failed to accept the login redirect connection")?;
+                    let expected_state = self.state.clone();
+                    let tx = tx.clone();
+                    tokio::spawn(async move {
+                        if let Some(outcome) = process_connection(stream, &expected_state).await {
+                            let _ = tx.send(outcome).await;
+                        }
+                    });
+                }
             }
-            // A stray request (e.g. a favicon probe) — keep waiting for /callback.
+        }
+    }
+}
+
+/// Handle one loopback connection. Returns `Some(Ok(code))` / `Some(Err(..))` only
+/// for a `/callback` carrying our `state` — a definitive outcome that ends the
+/// flow. Returns `None` for anything else (a non-callback path, an unparseable or
+/// stalled request, or a callback whose `state` doesn't match), so a stray or
+/// forged local request is ignored and the listener keeps waiting.
+async fn process_connection(mut stream: TcpStream, expected_state: &str) -> Option<Result<String>> {
+    let target = read_request_target(&mut stream).await?;
+
+    // Resolve the path + query against a dummy base to reuse the URL parser.
+    let Ok(url) = reqwest::Url::parse(&format!("http://127.0.0.1{target}")) else {
+        respond(&mut stream, 400, PAGE_ERROR).await;
+        return None;
+    };
+    if url.path() != "/callback" {
+        respond(&mut stream, 404, PAGE_ERROR).await;
+        return None;
+    }
+
+    let mut code = None;
+    let mut state = None;
+    let mut error = None;
+    for (k, v) in url.query_pairs() {
+        match k.as_ref() {
+            "code" => code = Some(v.into_owned()),
+            "state" => state = Some(v.into_owned()),
+            "error" => error = Some(v.into_owned()),
+            _ => {}
         }
     }
 
-    /// Parse one HTTP request. Returns `Some(Ok(code))` / `Some(Err(..))` once the
-    /// `/callback` is seen, or `None` for any other path (keep listening).
-    async fn handle_connection(&self, mut stream: TcpStream) -> Result<Option<Result<String>>> {
-        let Some(target) = read_request_target(&mut stream).await? else {
-            return Ok(None);
-        };
+    // Ignore any callback whose state doesn't match ours — checked before honoring
+    // `error`, so a stray `?error=…` (with no/wrong state) can't abort the login.
+    if state.as_deref() != Some(expected_state) {
+        respond(&mut stream, 400, PAGE_ERROR).await;
+        return None;
+    }
 
-        // Resolve the path + query against a dummy base to reuse the URL parser.
-        let url = reqwest::Url::parse(&format!("http://127.0.0.1{target}"))
-            .context("malformed login redirect request")?;
-        if url.path() != "/callback" {
-            respond(&mut stream, 404, PAGE_ERROR).await;
-            return Ok(None);
+    if let Some(err) = error {
+        respond(&mut stream, 400, PAGE_DENIED).await;
+        return Some(Err(anyhow!("sign-in was declined in the browser ({err})")));
+    }
+
+    match code {
+        Some(code) if !code.is_empty() => {
+            respond(&mut stream, 200, PAGE_OK).await;
+            Some(Ok(code))
         }
-
-        let mut code = None;
-        let mut state = None;
-        let mut error = None;
-        for (k, v) in url.query_pairs() {
-            match k.as_ref() {
-                "code" => code = Some(v.into_owned()),
-                "state" => state = Some(v.into_owned()),
-                "error" => error = Some(v.into_owned()),
-                _ => {}
-            }
-        }
-
-        if let Some(err) = error {
-            respond(&mut stream, 400, PAGE_DENIED).await;
-            return Ok(Some(Err(anyhow!(
-                "sign-in was declined in the browser ({err})"
-            ))));
-        }
-
-        // Reject a mismatched/absent state — guards against a stray or forged
-        // callback landing on the loopback port.
-        if state.as_deref() != Some(self.state.as_str()) {
+        _ => {
             respond(&mut stream, 400, PAGE_ERROR).await;
-            return Ok(Some(Err(anyhow!(
-                "login redirect state did not match; aborting for safety"
-            ))));
-        }
-
-        match code {
-            Some(code) if !code.is_empty() => {
-                respond(&mut stream, 200, PAGE_OK).await;
-                Ok(Some(Ok(code)))
-            }
-            _ => {
-                respond(&mut stream, 400, PAGE_ERROR).await;
-                Ok(Some(Err(anyhow!(
-                    "login redirect carried no authorization code"
-                ))))
-            }
+            Some(Err(anyhow!("login redirect carried no authorization code")))
         }
     }
 }
@@ -192,23 +200,33 @@ fn sha256_hex(input: &str) -> String {
     hex::encode(Sha256::digest(input.as_bytes()))
 }
 
-/// Read the HTTP request line and return the request target (the path+query),
-/// e.g. `/callback?code=…`. Returns `None` if the request is empty/unparseable.
-async fn read_request_target(stream: &mut TcpStream) -> Result<Option<String>> {
-    // The request line is tiny and arrives first; a bounded read avoids a slow
-    // client holding the accept loop.
-    let mut buf = [0u8; 4096];
-    let n = timeout(Duration::from_secs(10), stream.read(&mut buf))
-        .await
-        .map_err(|_| anyhow!("the browser connection stalled"))?
-        .context("failed to read the login redirect request")?;
-    if n == 0 {
-        return Ok(None);
+/// Read the HTTP request line (up to the first CRLF) and return the request
+/// target — the path+query, e.g. `/callback?code=…`. Accumulates across reads so a
+/// segmented request line still parses. `None` on an empty, stalled, oversized, or
+/// otherwise unusable connection (the caller then ignores it).
+async fn read_request_target(stream: &mut TcpStream) -> Option<String> {
+    let mut buf = Vec::with_capacity(1024);
+    let mut chunk = [0u8; 1024];
+    loop {
+        if let Some(pos) = buf.windows(2).position(|w| w == b"\r\n") {
+            let line = String::from_utf8_lossy(&buf[..pos]);
+            // "GET /callback?... HTTP/1.1" — the second whitespace-separated token.
+            return line.split_whitespace().nth(1).map(str::to_string);
+        }
+        // The request line for our tiny callback is well under this; a junk flood
+        // that never sends a CRLF is dropped rather than buffered unboundedly.
+        if buf.len() > 8192 {
+            return None;
+        }
+        let n = match timeout(Duration::from_secs(5), stream.read(&mut chunk)).await {
+            Ok(Ok(n)) => n,
+            _ => return None, // a stalled read or an I/O error — ignore this connection
+        };
+        if n == 0 {
+            return None; // closed before a full request line
+        }
+        buf.extend_from_slice(&chunk[..n]);
     }
-    let head = String::from_utf8_lossy(&buf[..n]);
-    let first_line = head.lines().next().unwrap_or("");
-    // "GET /callback?... HTTP/1.1" — the second whitespace-separated token.
-    Ok(first_line.split_whitespace().nth(1).map(str::to_string))
 }
 
 /// Write a minimal HTTP response with an HTML body, then close. Best-effort: a
