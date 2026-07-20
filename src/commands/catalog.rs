@@ -101,6 +101,12 @@ pub struct SealedArgs {
 }
 
 #[derive(Debug, Args)]
+pub struct RulingsArgs {
+    pub game: String,
+    pub id: String,
+}
+
+#[derive(Debug, Args)]
 pub struct ScanArgs {
     pub game: String,
     /// A file containing the 32-byte fingerprint (raw bytes or hex text).
@@ -355,6 +361,27 @@ pub async fn prints(ctx: &Ctx, args: PrintsArgs) -> Result<()> {
         println!("No other printings.");
     } else {
         cards_table(&body.data);
+    }
+    Ok(())
+}
+
+pub async fn rulings(ctx: &Ctx, args: RulingsArgs) -> Result<()> {
+    let path = format!("/api/games/{}/cards/{}/rulings", args.game, args.id);
+    let body: DataBody<Vec<Ruling>> = ctx.client.get_json(&path, &[]).await?;
+    if ctx.printer.json {
+        ctx.printer.json(&body.data)?;
+    } else if body.data.is_empty() {
+        println!("No rulings.");
+    } else {
+        let mut t = table(&["Date", "Source", "Ruling"]);
+        for r in &body.data {
+            t.add_row(vec![
+                r.published_at.clone(),
+                r.source.clone(),
+                output::truncate(&r.comment, 88),
+            ]);
+        }
+        println!("{t}");
     }
     Ok(())
 }

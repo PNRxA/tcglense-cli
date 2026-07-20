@@ -133,6 +133,7 @@ tcglense cards mtg -q 'lightning bolt'
 tcglense card mtg <card-id>
 tcglense prices mtg <card-id> --range 1y
 tcglense prints mtg <card-id>
+tcglense rulings mtg <card-id>
 tcglense sealed mtg <card-id>
 tcglense products mtg --set blb --sort price --dir desc
 tcglense product mtg <product-id> contents
