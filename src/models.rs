@@ -185,6 +185,15 @@ pub struct PricePoint {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Ruling {
+    /// Who issued it: `wotc` or `scryfall`.
+    pub source: String,
+    /// `YYYY-MM-DD`.
+    pub published_at: String,
+    pub comment: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IngestStatus {
     pub status: String,
     pub detail: Option<String>,

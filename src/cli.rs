@@ -89,6 +89,8 @@ pub enum Command {
     Prints(catalog::PrintsArgs),
     /// Show the sealed products a card is found in / can be pulled from.
     Sealed(catalog::SealedArgs),
+    /// Show a card's official rulings (oldest first).
+    Rulings(catalog::RulingsArgs),
     /// Identify a card from a 256-bit perceptual-hash fingerprint (auth required).
     Scan(catalog::ScanArgs),
     /// Browse sealed products.
