@@ -137,6 +137,11 @@ tcglense rulings mtg <card-id>
 tcglense sealed mtg <card-id>
 tcglense products mtg --set blb --sort price --dir desc
 tcglense product mtg <product-id> contents
+tcglense keywords mtg --full                         # the rules glossary
+tcglense art-tags mtg -q squirrel                    # tags the `art:` filter matches
+tcglense art-tags mtg --card <card-id>               # what this artwork depicts
+tcglense export cards mtg -q 't:goblin' -o goblins.txt   # whole result set as a .txt list
+tcglense export set mtg blb --format names
 
 # Collection (auth required)
 tcglense collection mtg summary
@@ -144,12 +149,15 @@ tcglense collection mtg list -q 'is:foil'
 tcglense collection mtg set <card-id> --qty 4 --foil 1
 tcglense collection mtg add <card-id> --qty 1
 tcglense collection mtg import --provider archidekt --source <url> --mode merge
+tcglense collection mtg import-text list.txt --mode merge   # or pipe a paste on stdin
 tcglense collection mtg export --format archidekt -o backup.csv
+tcglense collection mtg export-cards -q 'is:foil' -o foils.txt
 tcglense collection mtg movers --window week
 tcglense collection mtg products list
 
 # Wish list (mirrors the collection card ops)
 tcglense wishlist mtg set <card-id> --qty 1
+tcglense wishlist mtg export-cards -o shopping-list.txt
 tcglense wishlist mtg visibility set true            # share your wish list publicly
 
 # Decks
@@ -159,6 +167,15 @@ tcglense decks mtg show <deck-id>
 tcglense decks mtg card <deck-id> set <card-id> --section <section-id> --qty 1
 tcglense decks mtg export <deck-id> --format moxfield-text
 tcglense decks mtg needed --mode card                # cards your decks want but you don't own
+
+# Life tracker (auth required)
+tcglense life mtg start --player 'Alice,deck=12' --player 'Bob,commander=<card-id>'
+tcglense life mtg adjust <session-id> <player-id> --delta -3
+tcglense life mtg show <session-id>                  # seats + the whole life history
+tcglense life mtg undo <session-id> <event-id>       # drop one change, re-derive the seat
+tcglense life mtg finish <session-id> --winner <player-id>
+tcglense life mtg start --from <session-id>          # rematch the same pod
+tcglense life mtg records                            # per-deck win/loss record
 
 # Public sharing (reads need no auth; `deck … copy` does)
 tcglense public alice-0001 profile

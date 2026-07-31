@@ -13,8 +13,9 @@ public TCGLense HTTP JSON API (default origin `https://tcglense.com`).
 - `src/cli.rs` — the clap surface: the top-level `Command` enum. Each variant's args
   live next to its handler in `src/commands/<domain>.rs`.
 - `src/commands/mod.rs` — `dispatch()` maps each `Command` to its handler.
-- `src/commands/` — `catalog` (games/sets/cards/products/scan/images), `collection`,
-  `wishlist`, `decks`, `public`, `auth`, `misc` (health/config/openapi/update).
+- `src/commands/` — `catalog` (games/sets/cards/products/scan/images/keywords/art-tags/
+  exports), `collection`, `wishlist`, `decks`, `tools` (the life tracker), `public`,
+  `auth`, `misc` (health/config/openapi/update).
 - `src/commands/holdings.rs` — a **shared engine** for the collection + wish-list
   surfaces, parameterised by a `Surface { base, batch_route, product_batch_route }`.
   Its paths are built by string concatenation off `base` (e.g. `{base}/cards/{id}`,

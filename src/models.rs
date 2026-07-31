@@ -193,6 +193,33 @@ pub struct Ruling {
     pub comment: String,
 }
 
+/// One community Tagger art tag — what a card's *artwork* depicts. The slug is the
+/// value the `art:` search filter matches.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArtTag {
+    pub slug: String,
+    pub label: String,
+    /// Distinct artworks carrying the tag (hierarchy-expanded).
+    pub count: i64,
+    pub description: Option<String>,
+}
+
+/// One glossary entry: a keyword ability, keyword action, or ability word.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Keyword {
+    pub name: String,
+    pub slug: String,
+    /// `ability` | `action` | `ability_word`.
+    pub kind: String,
+    /// Plain-English explanation (the official reminder text where one exists).
+    pub text: String,
+    /// Whether the keyword normally carries a value in card text (`Ward {2}`).
+    pub parameterized: bool,
+    /// How safely the name can be spotted in rules text: `anywhere` |
+    /// `ability_line` | `never`.
+    pub match_mode: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IngestStatus {
     pub status: String,
@@ -628,4 +655,93 @@ pub struct PublicProfile {
     pub handle: String,
     pub member_since: String,
     pub games: Vec<PublicGameSummary>,
+}
+
+// ---------------------------------------------------------------------------
+// Tools — life tracker
+// ---------------------------------------------------------------------------
+
+/// One seat in a tracked game: who's sitting there, what they brought, where they
+/// are on screen, what they're on, and how the game ended for them.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LifePlayer {
+    pub id: i64,
+    /// Seat order within the session, 0-based and gap-free.
+    pub position: i64,
+    pub name: String,
+    pub starting_life: i64,
+    pub life: i64,
+    /// Screen rotation in degrees (`0`, `90`, `180`, `270`).
+    pub rotation: i64,
+    /// `none` while the game is active, then `win` / `loss` / `draw`.
+    pub result: String,
+    pub deck_id: Option<i64>,
+    pub deck_name: Option<String>,
+    pub commander_card_id: Option<String>,
+    pub commander_name: Option<String>,
+}
+
+/// A tracked game's header plus its seats — what the session list returns, and
+/// what every write echoes back.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LifeSession {
+    pub id: i64,
+    pub game: String,
+    pub name: Option<String>,
+    pub format: Option<String>,
+    /// The total a new seat in this session starts on.
+    pub starting_life: i64,
+    /// Seat-placement layout slug: `rows` / `facing` / `grid` / `pinwheel`.
+    pub layout: String,
+    /// `active` or `finished`. Only an active session accepts edits.
+    pub status: String,
+    /// Seats in `position` order.
+    pub players: Vec<LifePlayer>,
+    pub started_at: String,
+    pub finished_at: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// One recorded life change. `delta` is what the change was; `life_after` is what
+/// it left the seat on.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LifeEvent {
+    pub id: i64,
+    pub player_id: i64,
+    pub delta: i64,
+    pub life_after: i64,
+    /// `adjust` (relative) or `set` (absolute correction).
+    pub kind: String,
+    pub created_at: String,
+}
+
+/// One tracked game in full: its header + seats, plus every recorded life change
+/// in the order they happened. Returned by the detail read and by every write.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LifeSessionDetail {
+    pub session: LifeSession,
+    pub events: Vec<LifeEvent>,
+}
+
+/// What one life change returned: the seat as it now stands, plus the change that
+/// was recorded. This — not the whole session — is what the life endpoint echoes.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LifeChange {
+    pub player: LifePlayer,
+    pub event: LifeEvent,
+}
+
+/// A deck's record across finished tracked games.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LifeDeckRecord {
+    pub deck_id: i64,
+    pub deck_name: String,
+    pub games: i64,
+    pub wins: i64,
+    pub losses: i64,
+    pub draws: i64,
+    /// `wins / games` in `0.0..=1.0`, or null with no games.
+    pub win_rate: Option<f64>,
+    pub last_played_at: Option<String>,
 }

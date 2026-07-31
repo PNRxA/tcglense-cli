@@ -54,6 +54,23 @@ pub fn price(v: &Option<String>) -> String {
     }
 }
 
+/// Write an exported document to `output`, or to stdout when no path is given.
+pub fn write_out(
+    text: &str,
+    output: Option<&std::path::Path>,
+    what: &str,
+    p: &Printer,
+) -> Result<()> {
+    match output {
+        Some(path) => {
+            std::fs::write(path, text.as_bytes())?;
+            p.note(format!("Wrote {what} to {}.", path.display()));
+        }
+        None => print!("{text}"),
+    }
+    Ok(())
+}
+
 pub fn truncate(s: &str, max: usize) -> String {
     let chars: Vec<char> = s.chars().collect();
     if chars.len() <= max {
