@@ -1,9 +1,14 @@
 //! Tools: the life tracker (`/api/tools/{game}/life/…`).
 //!
 //! A *session* is one tracked game — a header (name, format, layout, starting life)
-//! plus its seats, and a full history of every life change. Writes echo the whole
-//! session back, because a single change can re-derive many rows, so every handler
-//! here renders the same [`LifeSessionDetail`].
+//! plus its seats, and a full history of every life change.
+//!
+//! Most writes echo the whole [`LifeSessionDetail`] back, because one change can
+//! re-derive many rows (an undo re-folds a seat's chain; removing a seat renumbers
+//! the rest). Three do not, and the response type has to match or the write lands
+//! but the CLI reports a decode failure: editing the session returns the bare
+//! [`LifeSession`], editing a seat returns the bare [`LifePlayer`], and a life
+//! change returns a [`LifeChange`] — just the seat it moved and the event recorded.
 
 use anyhow::{Result, bail};
 use clap::{Args, Subcommand};
@@ -132,7 +137,7 @@ pub enum LifeCommand {
         #[arg(long, allow_negative_numbers = true, conflicts_with = "life")]
         delta: Option<i64>,
         /// An absolute correction — the total the seat is actually on.
-        #[arg(long)]
+        #[arg(long, allow_negative_numbers = true)]
         life: Option<i64>,
     },
     /// Undo one recorded life change, from anywhere in the history.
@@ -220,11 +225,12 @@ pub async fn life(ctx: &Ctx, args: LifeArgs) -> Result<()> {
                 "format": format,
                 "layout": layout,
             });
-            let detail: LifeSessionDetail = ctx
+            // Editing the session echoes the bare session, not the detail envelope.
+            let session: LifeSession = ctx
                 .client
                 .put_json(&format!("{base}/sessions/{session_id}"), body)
                 .await?;
-            report(ctx, &detail, false)
+            report_session(ctx, &session)
         }
 
         LifeCommand::Delete { session_id } => {
@@ -288,14 +294,20 @@ pub async fn life(ctx: &Ctx, args: LifeArgs) -> Result<()> {
                 "commander_card_id": commander,
                 "rotation": rotation.unwrap_or(0),
             });
-            let detail: LifeSessionDetail = ctx
+            // Editing a seat echoes just that seat.
+            let seat: LifePlayer = ctx
                 .client
                 .put_json(
                     &format!("{base}/sessions/{session_id}/players/{player_id}"),
                     body,
                 )
                 .await?;
-            report(ctx, &detail, false)
+            if ctx.printer.json {
+                ctx.printer.json(&seat)?;
+            } else {
+                players_table(std::slice::from_ref(&seat));
+            }
+            Ok(())
         }
 
         LifeCommand::RemovePlayer {
@@ -334,14 +346,30 @@ pub async fn life(ctx: &Ctx, args: LifeArgs) -> Result<()> {
                 bail!("pass exactly one of --delta <change> or --life <total>");
             }
             let body = serde_json::json!({ "delta": delta, "life": life });
-            let detail: LifeSessionDetail = ctx
+            // A life change echoes only the seat it moved plus the event recorded.
+            let change: LifeChange = ctx
                 .client
                 .post_json(
                     &format!("{base}/sessions/{session_id}/players/{player_id}/life"),
                     body,
                 )
                 .await?;
-            report(ctx, &detail, false)
+            if ctx.printer.json {
+                ctx.printer.json(&change)?;
+            } else {
+                let e = &change.event;
+                println!(
+                    "{} (seat {}): {} → {}   ({:+} · {} · event {})",
+                    change.player.name,
+                    change.player.id,
+                    e.life_after - e.delta,
+                    e.life_after,
+                    e.delta,
+                    e.kind,
+                    e.id
+                );
+            }
+            Ok(())
         }
 
         LifeCommand::Undo {
@@ -436,7 +464,28 @@ fn report(ctx: &Ctx, detail: &LifeSessionDetail, with_history: bool) -> Result<(
     if ctx.printer.json {
         return ctx.printer.json(detail);
     }
-    let s = &detail.session;
+    print_session(&detail.session);
+    if with_history {
+        if detail.events.is_empty() {
+            println!("(no life changes recorded yet)");
+        } else {
+            events_table(&detail.session.players, &detail.events);
+        }
+    }
+    Ok(())
+}
+
+/// Render a bare session — the shape the session edit echoes back, which carries
+/// no history to print.
+fn report_session(ctx: &Ctx, session: &LifeSession) -> Result<()> {
+    if ctx.printer.json {
+        return ctx.printer.json(session);
+    }
+    print_session(session);
+    Ok(())
+}
+
+fn print_session(s: &LifeSession) {
     println!(
         "Game {} · {} · {} · layout {} · started {}",
         s.id, s.game, s.status, s.layout, s.started_at
@@ -452,14 +501,6 @@ fn report(ctx: &Ctx, detail: &LifeSessionDetail, with_history: bool) -> Result<(
         }
     );
     players_table(&s.players);
-    if with_history {
-        if detail.events.is_empty() {
-            println!("(no life changes recorded yet)");
-        } else {
-            events_table(&s.players, &detail.events);
-        }
-    }
-    Ok(())
 }
 
 fn sessions_table(sessions: &[LifeSession]) {

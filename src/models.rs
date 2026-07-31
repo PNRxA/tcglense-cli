@@ -724,6 +724,14 @@ pub struct LifeSessionDetail {
     pub events: Vec<LifeEvent>,
 }
 
+/// What one life change returned: the seat as it now stands, plus the change that
+/// was recorded. This — not the whole session — is what the life endpoint echoes.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LifeChange {
+    pub player: LifePlayer,
+    pub event: LifeEvent,
+}
+
 /// A deck's record across finished tracked games.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LifeDeckRecord {

@@ -153,7 +153,9 @@ pub fn push_flag(q: &mut Vec<(&'static str, String)>, key: &'static str, val: bo
 /// wish-list export endpoints, which all take the same `format` parameter.
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum CardExportFormat {
-    /// `N Name (SET) 123` per printing (foil copies tagged ` *F*`).
+    /// One `N Name (SET) 123` line per printing. On the collection/wish-list
+    /// exports `N` is the real held count and foil copies get their own ` *F*`
+    /// line; the catalog exports have no counts to carry, so `N` is always 1.
     Text,
     /// De-duplicated card names, one per line.
     Names,
