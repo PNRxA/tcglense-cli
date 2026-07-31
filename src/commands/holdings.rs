@@ -4,11 +4,12 @@
 //! live here once, parameterised by a [`Surface`].
 
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::Subcommand;
 
-use super::{Ctx, push_flag, push_opt};
+use super::{CardExportFormat, Ctx, push_flag, push_opt};
 use crate::models::*;
 use crate::output::{self, collection_summary, collection_table, product_holdings_table, table};
 
@@ -217,6 +218,31 @@ pub async fn set_subtypes(
         }
     }
     Ok(())
+}
+
+/// Export the whole result set of a holdings card search as a `.txt` deck-list —
+/// the browse's mirror of the catalog's card-search export, with the real held
+/// counts on each line so the file round-trips through the text importer.
+#[allow(clippy::too_many_arguments)]
+pub async fn export_cards(
+    ctx: &Ctx,
+    s: &Surface,
+    query: Option<String>,
+    set: Option<String>,
+    related: bool,
+    sort: Option<String>,
+    dir: Option<String>,
+    format: CardExportFormat,
+    output: Option<PathBuf>,
+) -> Result<()> {
+    let mut q: Vec<(&str, String)> = Vec::new();
+    push_opt(&mut q, "q", &query);
+    push_opt(&mut q, "set", &set);
+    push_opt(&mut q, "sort", &sort);
+    push_opt(&mut q, "dir", &dir);
+    push_flag(&mut q, "include_related", related);
+    let path = format!("{}/cards/export", s.base);
+    super::export_text(ctx, &path, q, format, output).await
 }
 
 pub async fn batch_counts(ctx: &Ctx, s: &Surface, ids: Vec<String>) -> Result<()> {

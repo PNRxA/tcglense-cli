@@ -3,11 +3,13 @@
 //! import and no value chart). It keeps its own public-sharing visibility, which —
 //! unlike the collection's — has no value-chart/movers toggles.
 
+use std::path::PathBuf;
+
 use anyhow::Result;
 use clap::{Args, Subcommand};
 
-use super::Ctx;
 use super::holdings::{self, ProductHoldingCommand, Surface};
+use super::{CardExportFormat, Ctx};
 use crate::models::WishlistVisibility;
 
 #[derive(Debug, Args)]
@@ -87,6 +89,24 @@ pub enum WishlistCommand {
     },
     /// Batch wanted counts for the given card ids.
     Counts { ids: Vec<String> },
+    /// Export a wanted-card search as a `.txt` deck-list (the same filters as
+    /// `list`) — a shopping list that pastes straight into the importers.
+    ExportCards {
+        #[arg(short = 'q', long)]
+        query: Option<String>,
+        #[arg(long)]
+        set: Option<String>,
+        #[arg(long)]
+        related: bool,
+        #[arg(long)]
+        sort: Option<String>,
+        #[arg(long)]
+        dir: Option<String>,
+        #[arg(long, value_enum, default_value_t = CardExportFormat::Text)]
+        format: CardExportFormat,
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
     /// Manage wanted sealed products.
     Products {
         #[command(subcommand)]
@@ -150,6 +170,15 @@ pub async fn run(ctx: &Ctx, args: WishlistArgs) -> Result<()> {
             page_size,
         } => holdings::set_subtypes(ctx, &s, &code, query, page, page_size).await,
         WishlistCommand::Counts { ids } => holdings::batch_counts(ctx, &s, ids).await,
+        WishlistCommand::ExportCards {
+            query,
+            set,
+            related,
+            sort,
+            dir,
+            format,
+            output,
+        } => holdings::export_cards(ctx, &s, query, set, related, sort, dir, format, output).await,
         WishlistCommand::Products { command } => holdings::products(ctx, &s, command).await,
         WishlistCommand::Visibility { command } => visibility(ctx, &s, command).await,
     }

@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use anyhow::{Result, bail};
 use clap::{Args, Subcommand};
 
-use super::{Ctx, push_flag, push_opt};
+use super::{CardExportFormat, Ctx, push_flag, push_opt};
 use crate::models::*;
 use crate::output::{
     self, card_detail, cards_table, games_table, prices_table, products_table, sets_table, table,
@@ -179,6 +179,79 @@ pub enum ProductCommand {
 #[derive(Debug, Args)]
 pub struct IngestArgs {
     pub game: String,
+}
+
+#[derive(Debug, Args)]
+pub struct KeywordsArgs {
+    pub game: String,
+    /// Show each entry's full explanation instead of a one-line table.
+    #[arg(long)]
+    pub full: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct ArtTagsArgs {
+    pub game: String,
+    /// Substring to match tag slugs/labels against; omit for the game's full tag list.
+    #[arg(short = 'q', long, conflicts_with = "card")]
+    pub query: Option<String>,
+    /// Max suggestions for a `-q` lookup (clamped to 1..=50; ignored without `-q`).
+    #[arg(long, conflicts_with = "card")]
+    pub limit: Option<u32>,
+    /// Show the art tags on one card's artwork instead of the game's tag list.
+    #[arg(long, value_name = "CARD_ID")]
+    pub card: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct ExportArgs {
+    #[command(subcommand)]
+    pub command: ExportCommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ExportCommand {
+    /// Export a whole card-search result set as a `.txt` deck-list.
+    Cards {
+        game: String,
+        /// Scryfall-style search filter.
+        #[arg(short = 'q', long)]
+        query: Option<String>,
+        /// Exact-name filter (matched literally).
+        #[arg(long)]
+        name: Option<String>,
+        /// Sort key: name | number | rarity | released | cmc | price.
+        #[arg(long)]
+        sort: Option<String>,
+        /// Direction: asc | desc.
+        #[arg(long)]
+        dir: Option<String>,
+        #[arg(long, value_enum, default_value_t = CardExportFormat::Text)]
+        format: CardExportFormat,
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Export a set's card-search result set as a `.txt` deck-list.
+    Set {
+        game: String,
+        code: String,
+        /// Scryfall-style search filter.
+        #[arg(short = 'q', long)]
+        query: Option<String>,
+        /// Span the set's whole group (root + related sub-sets).
+        #[arg(long)]
+        related: bool,
+        /// Sort key: number | name | rarity | released | cmc | price.
+        #[arg(long)]
+        sort: Option<String>,
+        /// Direction: asc | desc.
+        #[arg(long)]
+        dir: Option<String>,
+        #[arg(long, value_enum, default_value_t = CardExportFormat::Text)]
+        format: CardExportFormat,
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
 }
 
 #[derive(Debug, Args)]
@@ -384,6 +457,131 @@ pub async fn rulings(ctx: &Ctx, args: RulingsArgs) -> Result<()> {
         println!("{t}");
     }
     Ok(())
+}
+
+pub async fn keywords(ctx: &Ctx, args: KeywordsArgs) -> Result<()> {
+    let path = format!("/api/games/{}/keywords", args.game);
+    let body: DataBody<Vec<Keyword>> = ctx.client.get_json(&path, &[]).await?;
+    if ctx.printer.json {
+        ctx.printer.json(&body.data)?;
+        return Ok(());
+    }
+    if body.data.is_empty() {
+        println!("No curated glossary for this game yet.");
+        return Ok(());
+    }
+    if args.full {
+        for k in &body.data {
+            println!(
+                "{}  [{}{}]",
+                k.name,
+                k.kind,
+                if k.parameterized {
+                    ", takes a value"
+                } else {
+                    ""
+                }
+            );
+            println!("  {}\n", k.text);
+        }
+    } else {
+        let mut t = table(&["Name", "Kind", "Slug", "Explanation"]);
+        for k in &body.data {
+            t.add_row(vec![
+                k.name.clone(),
+                k.kind.clone(),
+                k.slug.clone(),
+                output::truncate(&k.text, 72),
+            ]);
+        }
+        println!("{t}");
+        ctx.printer.note(format!(
+            "{} entries (--full for each explanation).",
+            body.data.len()
+        ));
+    }
+    Ok(())
+}
+
+pub async fn art_tags(ctx: &Ctx, args: ArtTagsArgs) -> Result<()> {
+    let (path, q) = match &args.card {
+        Some(id) => (
+            format!("/api/games/{}/cards/{}/art-tags", args.game, id),
+            Vec::new(),
+        ),
+        None => {
+            let mut q: Vec<(&str, String)> = Vec::new();
+            push_opt(&mut q, "q", &args.query);
+            push_opt(&mut q, "limit", &args.limit);
+            (format!("/api/games/{}/art-tags", args.game), q)
+        }
+    };
+    let body: DataBody<Vec<ArtTag>> = ctx.client.get_json(&path, &q).await?;
+    if ctx.printer.json {
+        ctx.printer.json(&body.data)?;
+    } else if body.data.is_empty() {
+        println!("No art tags.");
+    } else {
+        let mut t = table(&["Slug", "Label", "Artworks", "Description"]);
+        for tag in &body.data {
+            t.add_row(vec![
+                tag.slug.clone(),
+                output::truncate(&tag.label, 36),
+                tag.count.to_string(),
+                output::truncate(tag.description.as_deref().unwrap_or("—"), 48),
+            ]);
+        }
+        println!("{t}");
+        ctx.printer.note(format!(
+            "{} tags · filter cards with `art:<slug>`.",
+            body.data.len()
+        ));
+    }
+    Ok(())
+}
+
+pub async fn export(ctx: &Ctx, args: ExportArgs) -> Result<()> {
+    let (path, q, format, output) = match args.command {
+        ExportCommand::Cards {
+            game,
+            query,
+            name,
+            sort,
+            dir,
+            format,
+            output,
+        } => {
+            let mut q: Vec<(&str, String)> = Vec::new();
+            push_opt(&mut q, "q", &query);
+            push_opt(&mut q, "name", &name);
+            push_opt(&mut q, "sort", &sort);
+            push_opt(&mut q, "dir", &dir);
+            (format!("/api/games/{game}/cards/export"), q, format, output)
+        }
+        ExportCommand::Set {
+            game,
+            code,
+            query,
+            related,
+            sort,
+            dir,
+            format,
+            output,
+        } => {
+            let mut q: Vec<(&str, String)> = Vec::new();
+            push_opt(&mut q, "q", &query);
+            push_flag(&mut q, "include_related", related);
+            push_opt(&mut q, "sort", &sort);
+            push_opt(&mut q, "dir", &dir);
+            (
+                format!("/api/games/{game}/sets/{code}/cards/export"),
+                q,
+                format,
+                output,
+            )
+        }
+    };
+    super::export_text(ctx, &path, q, format, output).await
 }
 
 pub async fn sealed(ctx: &Ctx, args: SealedArgs) -> Result<()> {

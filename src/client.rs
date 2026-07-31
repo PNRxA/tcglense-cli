@@ -222,6 +222,13 @@ impl Client {
             .await
     }
 
+    /// A DELETE whose success body we do want (e.g. the life tracker's removals,
+    /// which echo the whole re-derived session back).
+    pub async fn delete_json<T: DeserializeOwned>(&self, path: &str) -> Result<T> {
+        let resp = self.send(Method::DELETE, path, &[], Body::Empty).await?;
+        decode_json(resp).await
+    }
+
     /// GET a probe endpoint, returning `(status, body)` without treating a non-2xx
     /// (e.g. readiness `503`) as an error — the status *is* the information.
     pub async fn probe(&self, path: &str) -> Result<(u16, String)> {

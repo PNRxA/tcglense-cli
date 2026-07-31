@@ -7,9 +7,9 @@ use std::time::Duration;
 use anyhow::{Result, bail};
 use clap::{Args, Subcommand, ValueEnum};
 
-use super::Ctx;
 use super::holdings::{self, ProductHoldingCommand, Surface};
 use super::push_opt;
+use super::{CardExportFormat, Ctx};
 use crate::models::*;
 use crate::output::table;
 
@@ -120,6 +120,13 @@ pub enum CollectionCommand {
         #[arg(long, value_enum, default_value_t = Mode::Merge)]
         mode: Mode,
     },
+    /// Import from pasted text — a CSV or a card list, sniffed either way
+    /// (synchronous). Reads stdin when no file is given (or `-`).
+    ImportText {
+        file: Option<PathBuf>,
+        #[arg(long, value_enum, default_value_t = Mode::Merge)]
+        mode: Mode,
+    },
     /// Poll an import/sync job by id.
     Job {
         job_id: i64,
@@ -141,6 +148,24 @@ pub enum CollectionCommand {
     Export {
         #[arg(long, value_enum, default_value_t = ExportFormat::Archidekt)]
         format: ExportFormat,
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Export an owned-card search as a `.txt` deck-list (the same filters as
+    /// `list`), carrying the real owned counts.
+    ExportCards {
+        #[arg(short = 'q', long)]
+        query: Option<String>,
+        #[arg(long)]
+        set: Option<String>,
+        #[arg(long)]
+        related: bool,
+        #[arg(long)]
+        sort: Option<String>,
+        #[arg(long)]
+        dir: Option<String>,
+        #[arg(long, value_enum, default_value_t = CardExportFormat::Text)]
+        format: CardExportFormat,
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
@@ -289,6 +314,7 @@ pub async fn run(ctx: &Ctx, args: CollectionArgs) -> Result<()> {
             no_wait,
         } => import(ctx, &s, provider, source, mode, no_wait).await,
         CollectionCommand::ImportCsv { file, mode } => import_csv(ctx, &s, file, mode).await,
+        CollectionCommand::ImportText { file, mode } => import_text(ctx, &s, file, mode).await,
         CollectionCommand::Job { job_id, wait } => {
             if wait {
                 let job = wait_for_job(ctx, &s, job_id).await?;
@@ -302,6 +328,15 @@ pub async fn run(ctx: &Ctx, args: CollectionArgs) -> Result<()> {
         CollectionCommand::Sync { no_wait } => sync(ctx, &s, no_wait).await,
         CollectionCommand::Source { command } => source(ctx, &s, command).await,
         CollectionCommand::Export { format, output } => export(ctx, &s, format, output).await,
+        CollectionCommand::ExportCards {
+            query,
+            set,
+            related,
+            sort,
+            dir,
+            format,
+            output,
+        } => holdings::export_cards(ctx, &s, query, set, related, sort, dir, format, output).await,
         CollectionCommand::Visibility { command } => visibility(ctx, &s, command).await,
         CollectionCommand::Products { command } => holdings::products(ctx, &s, command).await,
     }
@@ -421,6 +456,29 @@ async fn import_csv(ctx: &Ctx, s: &Surface, file: PathBuf, mode: Mode) -> Result
             &[("mode", mode.as_str().to_string())],
             text,
             "text/csv",
+        )
+        .await?;
+    print_summary(ctx, &summary);
+    Ok(())
+}
+
+async fn import_text(ctx: &Ctx, s: &Surface, file: Option<PathBuf>, mode: Mode) -> Result<()> {
+    // No path (or the conventional `-`) means "read the paste from stdin".
+    let text = match file.as_deref() {
+        Some(p) if p != std::path::Path::new("-") => std::fs::read_to_string(p)?,
+        _ => std::io::read_to_string(std::io::stdin())?,
+    };
+    if text.trim().is_empty() {
+        bail!("nothing to import (the pasted text was empty)");
+    }
+    let path = format!("{}/import/text", s.base);
+    let summary: ImportSummary = ctx
+        .client
+        .post_text(
+            &path,
+            &[("mode", mode.as_str().to_string())],
+            text,
+            "text/plain",
         )
         .await?;
     print_summary(ctx, &summary);

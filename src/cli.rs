@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
-use crate::commands::{auth, catalog, collection, decks, misc, public, wishlist};
+use crate::commands::{auth, catalog, collection, decks, misc, public, tools, wishlist};
 
 /// Command-line client for TCGLense — browse the card catalog, manage your
 /// collection, wish list and decks, and mint API keys, via one-shot commands or an
@@ -101,6 +101,13 @@ pub enum Command {
     Ingest(catalog::IngestArgs),
     /// Download a card or product image to a file.
     Image(catalog::ImageArgs),
+    /// List a game's rules keywords, actions and ability words.
+    Keywords(catalog::KeywordsArgs),
+    /// Browse the art tags the `art:` search filter matches (or one card's).
+    #[command(name = "art-tags", alias = "arttags")]
+    ArtTags(catalog::ArtTagsArgs),
+    /// Export a whole card-search result set as a `.txt` deck-list.
+    Export(catalog::ExportArgs),
 
     // -- per-user surfaces --
     /// Manage your card + sealed-product collection for a game.
@@ -109,6 +116,9 @@ pub enum Command {
     Wishlist(wishlist::WishlistArgs),
     /// Build and organise decks for a game.
     Decks(decks::DecksArgs),
+    /// Track life totals for a game in progress, and the per-deck record that
+    /// accumulates from the games you finish.
+    Life(tools::LifeArgs),
     /// Read another user's public profile, collection, wish list and decks (and
     /// copy a public deck into your own).
     Public(public::PublicArgs),

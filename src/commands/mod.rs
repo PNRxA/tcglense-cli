@@ -7,11 +7,13 @@ pub mod decks;
 pub mod holdings;
 pub mod misc;
 pub mod public;
+pub mod tools;
 pub mod wishlist;
 
 use std::path::PathBuf;
 
 use anyhow::Result;
+use clap::ValueEnum;
 
 use crate::cli::{Cli, Command};
 use crate::client::Client;
@@ -106,9 +108,14 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
         Command::Ingest(a) => catalog::ingest(&ctx, a).await,
         Command::Image(a) => catalog::image(&ctx, a).await,
 
+        Command::Keywords(a) => catalog::keywords(&ctx, a).await,
+        Command::ArtTags(a) => catalog::art_tags(&ctx, a).await,
+        Command::Export(a) => catalog::export(&ctx, a).await,
+
         Command::Collection(a) => collection::run(&ctx, a).await,
         Command::Wishlist(a) => wishlist::run(&ctx, a).await,
         Command::Decks(a) => decks::run(&ctx, a).await,
+        Command::Life(a) => tools::life(&ctx, a).await,
         Command::Public(a) => public::run(&ctx, a).await,
 
         Command::Health => misc::health(&ctx).await,
@@ -140,4 +147,37 @@ pub fn push_flag(q: &mut Vec<(&'static str, String)>, key: &'static str, val: bo
     if val {
         q.push((key, "true".to_string()));
     }
+}
+
+/// Shape of a card-search `.txt` export — shared by the catalog, collection and
+/// wish-list export endpoints, which all take the same `format` parameter.
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum CardExportFormat {
+    /// `N Name (SET) 123` per printing (foil copies tagged ` *F*`).
+    Text,
+    /// De-duplicated card names, one per line.
+    Names,
+}
+
+impl CardExportFormat {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CardExportFormat::Text => "text",
+            CardExportFormat::Names => "names",
+        }
+    }
+}
+
+/// Fetch one of the API's `.txt` card exports and write it out — shared by the
+/// catalog, collection and wish-list export commands.
+pub async fn export_text(
+    ctx: &Ctx,
+    path: &str,
+    mut query: Vec<(&'static str, String)>,
+    format: CardExportFormat,
+    output: Option<PathBuf>,
+) -> Result<()> {
+    query.push(("format", format.as_str().to_string()));
+    let text = ctx.client.get_text(path, &query).await?;
+    crate::output::write_out(&text, output.as_deref(), "export", &ctx.printer)
 }
