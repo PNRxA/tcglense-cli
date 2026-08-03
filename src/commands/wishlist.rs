@@ -66,7 +66,12 @@ pub enum WishlistCommand {
         related: bool,
     },
     /// Per-set wanted aggregates.
-    Sets,
+    Sets {
+        /// Per-unit bulk price cutoff in USD cents (default $1) — splits each set
+        /// tile's bulk subtotal out of its value.
+        #[arg(long, value_name = "CENTS")]
+        bulk_max: Option<i64>,
+    },
     /// Wanted cards in a drop-grouped set, grouped by drop.
     Drops {
         code: String,
@@ -155,8 +160,10 @@ pub async fn run(ctx: &Ctx, args: WishlistArgs) -> Result<()> {
             holdings::add(ctx, &s, &card_id, qty, foil).await
         }
         WishlistCommand::Remove { card_id } => holdings::set(ctx, &s, &card_id, 0, 0).await,
-        WishlistCommand::Summary { set, related } => holdings::summary(ctx, &s, set, related).await,
-        WishlistCommand::Sets => holdings::sets(ctx, &s).await,
+        WishlistCommand::Summary { set, related } => {
+            holdings::summary(ctx, &s, set, related, None).await
+        }
+        WishlistCommand::Sets { bulk_max } => holdings::sets(ctx, &s, bulk_max).await,
         WishlistCommand::Drops {
             code,
             query,

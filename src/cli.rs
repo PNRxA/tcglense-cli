@@ -103,6 +103,8 @@ pub enum Command {
     Image(catalog::ImageArgs),
     /// List a game's rules keywords, actions and ability words.
     Keywords(catalog::KeywordsArgs),
+    /// List the deck formats a game tracks legality for.
+    Formats(catalog::FormatsArgs),
     /// Browse the art tags the `art:` search filter matches (or one card's).
     #[command(name = "art-tags", alias = "arttags")]
     ArtTags(catalog::ArtTagsArgs),

@@ -164,6 +164,10 @@ pub struct Card {
     pub colors: Vec<String>,
     pub layout: Option<String>,
     pub prices: CardPrices,
+    /// Per-format legality: `"modern"` → `"legal" | "not_legal" | "banned" |
+    /// "restricted"`. Absent when the catalog row carries no legality data.
+    #[serde(default)]
+    pub legalities: Option<BTreeMap<String, String>>,
     pub has_image: bool,
     pub drop_name: Option<String>,
     pub drop_slug: Option<String>,
@@ -236,6 +240,10 @@ pub struct DropGroup {
     pub title: String,
     pub card_count: i64,
     pub cheapest_prints_usd: Option<String>,
+    /// The drop's street date (`YYYY-MM-DD`), derived from its cards; a future
+    /// date means the drop hasn't landed yet.
+    #[serde(default)]
+    pub released_at: Option<String>,
     pub cards: Vec<Card>,
 }
 
@@ -568,6 +576,10 @@ pub struct DeckSection {
     pub id: i64,
     pub name: String,
     pub position: i64,
+    /// Whether the section sits outside the deck proper — its cards are left out
+    /// of `summary`, legality, analytics and the needed list.
+    #[serde(default)]
+    pub is_maybeboard: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -588,7 +600,12 @@ pub struct DeckDetail {
     pub folder_id: Option<i64>,
     pub is_public: bool,
     pub handle: Option<String>,
+    /// Aggregates over the deck **proper** — every card outside a maybeboard section.
     pub summary: CollectionSummary,
+    /// The same aggregates over the maybeboard sections alone (all-zero, or absent
+    /// on a server that predates maybeboards).
+    #[serde(default)]
+    pub maybeboard_summary: Option<CollectionSummary>,
     pub sections: Vec<DeckSection>,
     pub cards: Vec<DeckCardEntry>,
     pub created_at: String,
@@ -616,6 +633,151 @@ pub struct DeckImportResponse {
     pub matched_cards: i64,
     pub unmatched_cards: i64,
     pub unmatched_sample: Vec<String>,
+}
+
+// Deck formats, legality, analytics, goldfish ---------------------------------
+
+/// One legality-tracked format: its Scryfall key, how it's spelled to a human, the
+/// select grouping it renders under, and the extra spellings `deck.format` accepts.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeckFormat {
+    /// The key used in a card's `legalities` object.
+    pub key: String,
+    /// Display label — also what's stored in `deck.format` when picked.
+    pub label: String,
+    /// `constructed` | `commander` | `arena` | `other`.
+    pub group: String,
+    pub aliases: Vec<String>,
+    /// Whether it's one of the most-played formats.
+    pub popular: bool,
+}
+
+/// One offending card name in a deck (all printings of a name fold into one issue).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeckLegalityIssue {
+    /// External card id of one printing (for links).
+    pub card_id: String,
+    pub name: String,
+    /// `banned` | `not_legal` | `commander_only` | `off_colour` | `over_limit` |
+    /// `restricted`.
+    pub status: String,
+    /// Total copies across every section and printing.
+    pub quantity: i64,
+}
+
+/// One deck-wide construction breach, with a ready-to-render sentence.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeckRuleViolation {
+    /// `deck-size` | `sideboard-size` | `command-zone` | `commander-eligibility` |
+    /// `colour-identity`.
+    pub rule: String,
+    /// `error` (illegal as it stands) or `warning` (simply not finished yet).
+    pub severity: String,
+    pub message: String,
+}
+
+/// A deck's verdict against its own format.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeckLegality {
+    /// The legality key the deck's format label normalised to.
+    pub format_key: String,
+    pub format_label: String,
+    /// Sorted most severe first.
+    pub issues: Vec<DeckLegalityIssue>,
+    pub violations: Vec<DeckRuleViolation>,
+    /// Per-printing status for every entry belonging to an offending name.
+    #[serde(default)]
+    pub card_statuses: BTreeMap<String, String>,
+    /// Cards whose catalog row carries no legality data at all.
+    pub unknown_count: i64,
+    /// No card issues and no error-severity violation.
+    pub legal: bool,
+}
+
+/// One bar of a distribution (a mana-value bucket, a colour, a card type).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeckStatItem {
+    /// Stable bucket identifier (`"3"`, `"W"`, `"Creature"`).
+    pub key: String,
+    pub label: String,
+    pub count: i64,
+    /// Advisory hex swatch for the buckets that have a canonical colour.
+    #[serde(default)]
+    pub color: Option<String>,
+}
+
+/// How many copies of one card **name** a pool holds.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeckCardOdds {
+    pub name: String,
+    pub copies: i64,
+}
+
+/// The copy-weighted composition of a set of deck entries.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeckComposition {
+    /// Total copies (regular + foil) across every entry.
+    pub total_copies: i64,
+    /// Distinct printings — a name held in two arts counts twice.
+    pub unique_cards: i64,
+    pub land_copies: i64,
+    /// Copy-weighted mean mana value over nonlands, or null when there are none.
+    #[serde(default)]
+    pub average_mana_value: Option<f64>,
+    /// Nonland copies bucketed by mana value, `0`..`6` then `7+`.
+    pub mana_curve: Vec<DeckStatItem>,
+    pub colors: Vec<DeckStatItem>,
+    pub card_types: Vec<DeckStatItem>,
+    /// Copies folded by card name, most-copied first.
+    pub card_odds: Vec<DeckCardOdds>,
+}
+
+/// The hypergeometric draw odds for one card out of the library pool.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeckDrawOdds {
+    pub name: String,
+    pub copies: i64,
+    pub library_size: i64,
+    /// How many cards the `at_least_one` figure assumes were seen.
+    pub cards_seen: i64,
+    pub at_least_one: f64,
+    /// `curve[i]` is P(at least one copy) after seeing `i + 1` cards.
+    pub curve: Vec<f64>,
+}
+
+/// Everything the deck stats endpoint answers.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeckAnalytics {
+    /// Composition of the deck proper — maybeboard sections excluded.
+    pub deck: DeckComposition,
+    /// Composition of the library pool the odds are drawn from.
+    pub library: DeckComposition,
+    pub library_section_ids: Vec<i64>,
+    /// The sections the library defaults to: everything that isn't a maybeboard,
+    /// a command zone, or a sideboard.
+    pub default_library_section_ids: Vec<i64>,
+    /// Null only when the library pool is empty.
+    #[serde(default)]
+    pub odds: Option<DeckDrawOdds>,
+}
+
+/// A goldfished hand: what you're holding, what you bottomed, and what's left.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GoldfishHand {
+    /// The seed this hand was shuffled with — echoed so it can be replayed.
+    pub seed: i64,
+    pub mulligans: i64,
+    /// The opening hand size actually dealt (clamped to the library).
+    pub opening: i64,
+    pub draws: i64,
+    /// Cards that still have to go to the bottom before the game starts.
+    pub to_bottom: i64,
+    /// The hand, in the order the cards were drawn.
+    pub hand: Vec<Card>,
+    pub bottomed: Vec<Card>,
+    pub library_size: i64,
+    pub library_total: i64,
+    pub section_ids: Vec<i64>,
 }
 
 /// One deck that wants a [`NeededCard`], in the game's cross-deck needed list.
@@ -654,7 +816,12 @@ pub struct PublicProfile {
     pub discriminator: i64,
     pub handle: String,
     pub member_since: String,
+    /// Games whose **collection** the owner shares.
     pub games: Vec<PublicGameSummary>,
+    /// Games whose **wish list** the owner shares — shared independently of the
+    /// collection, so a game can appear in one list, both, or neither.
+    #[serde(default)]
+    pub wishlists: Vec<PublicGameSummary>,
 }
 
 // ---------------------------------------------------------------------------
@@ -691,8 +858,14 @@ pub struct LifeSession {
     pub format: Option<String>,
     /// The total a new seat in this session starts on.
     pub starting_life: i64,
-    /// Seat-placement layout slug: `rows` / `facing` / `grid` / `pinwheel`.
+    /// Seat-placement layout slug: `rows` / `facing` / `facing-solo` / `sides` /
+    /// `sides-solo` / `grid` / `pinwheel`.
     pub layout: String,
+    /// Which counters beyond life this game tracks, in display order — any of
+    /// `commander_damage` / `poison` / `energy` / `experience`. Empty for a game
+    /// that only tracks life; `life` is always tracked and never listed.
+    #[serde(default)]
+    pub counters: Vec<String>,
     /// `active` or `finished`. Only an active session accepts edits.
     pub status: String,
     /// Seats in `position` order.
@@ -703,17 +876,42 @@ pub struct LifeSession {
     pub updated_at: String,
 }
 
-/// One recorded life change. `delta` is what the change was; `life_after` is what
-/// it left the seat on.
+/// Where one of a seat's counters currently stands — folded out of the history, so
+/// only counters a seat has actually moved appear (an absent entry is `0`). A seat's
+/// life lives on the seat itself, not here.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LifeCounter {
+    /// `poison` / `energy` / `experience` / `commander_damage`.
+    pub counter: String,
+    pub player_id: i64,
+    /// For `commander_damage`, the seat whose commander dealt it; null otherwise.
+    #[serde(default)]
+    pub source_player_id: Option<i64>,
+    pub value: i64,
+}
+
+/// One recorded change. `delta` is what the change was; `life_after` is what it left
+/// this row's `counter` on (the seat's life, for `life`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LifeEvent {
     pub id: i64,
     pub player_id: i64,
     pub delta: i64,
     pub life_after: i64,
+    /// Which counter moved: `life` / `poison` / `energy` / `experience` /
+    /// `commander_damage`. Defaults to `life` on a server that predates counters.
+    #[serde(default = "counter_life")]
+    pub counter: String,
+    /// For `commander_damage`, the seat whose commander dealt it; null otherwise.
+    #[serde(default)]
+    pub source_player_id: Option<i64>,
     /// `adjust` (relative) or `set` (absolute correction).
     pub kind: String,
     pub created_at: String,
+}
+
+fn counter_life() -> String {
+    "life".to_string()
 }
 
 /// One tracked game in full: its header + seats, plus every recorded life change
@@ -721,6 +919,10 @@ pub struct LifeEvent {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LifeSessionDetail {
     pub session: LifeSession,
+    /// Every non-life counter that has been moved, folded out of `events` — so the
+    /// table's full state arrives without replaying the history client-side.
+    #[serde(default)]
+    pub counters: Vec<LifeCounter>,
     pub events: Vec<LifeEvent>,
 }
 
@@ -729,6 +931,10 @@ pub struct LifeSessionDetail {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LifeChange {
     pub player: LifePlayer,
+    /// Where the affected counter now stands, for a change to something other than
+    /// `life` (whose value is the seat's own `life`).
+    #[serde(default)]
+    pub counter: Option<LifeCounter>,
     pub event: LifeEvent,
 }
 

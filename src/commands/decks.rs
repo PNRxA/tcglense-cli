@@ -7,9 +7,9 @@ use std::path::PathBuf;
 use anyhow::{Result, bail};
 use clap::{Args, Subcommand, ValueEnum};
 
-use super::Ctx;
+use super::{Ctx, push_opt};
 use crate::models::*;
-use crate::output::{self, decks_table, table};
+use crate::output::{self, cards_table, decks_table, table};
 
 #[derive(Debug, Args)]
 pub struct DecksArgs {
@@ -109,6 +109,60 @@ pub enum DecksCommand {
         #[arg(long, value_enum, default_value_t = NeededMode::Card)]
         mode: NeededMode,
     },
+    /// Check a deck against its own format: offending cards + construction breaches.
+    Legality { deck_id: i64 },
+    /// Composition (curve, colours, types) plus the draw odds for one card.
+    Stats {
+        deck_id: i64,
+        #[command(flatten)]
+        args: StatsArgs,
+    },
+    /// Shuffle the library and deal a sample opening hand.
+    Goldfish {
+        deck_id: i64,
+        #[command(flatten)]
+        args: GoldfishArgs,
+    },
+}
+
+/// Options shared by the private and public deck-analytics reads.
+#[derive(Debug, Args)]
+pub struct StatsArgs {
+    /// Section ids to use as the shuffled library (comma-separated). Omit for the
+    /// default selection — everything that isn't a maybeboard, command zone or
+    /// sideboard; pass an empty value for none.
+    #[arg(long, value_name = "IDS", allow_hyphen_values = true)]
+    pub sections: Option<String>,
+    /// Card *name* to compute draw odds for (default: the most-copied card).
+    #[arg(long, value_name = "NAME")]
+    pub card: Option<String>,
+    /// How many cards the headline probability assumes were seen (default 7).
+    #[arg(long, value_name = "N")]
+    pub cards_seen: Option<i64>,
+}
+
+/// Options shared by the private and public goldfish reads. The whole hand is a
+/// function of these, so the same values always deal the same cards.
+#[derive(Debug, Args)]
+pub struct GoldfishArgs {
+    /// Shuffle seed; omit for a fresh random one (the result echoes it back).
+    #[arg(long)]
+    pub seed: Option<i64>,
+    /// How many London mulligans were taken — each costs a card to the bottom.
+    #[arg(long)]
+    pub mulligans: Option<i64>,
+    /// Card ids put on the bottom (comma-separated), at most one per mulligan.
+    #[arg(long, value_name = "CARD_IDS")]
+    pub bottom: Option<String>,
+    /// Cards drawn after the opening hand (the draw step).
+    #[arg(long)]
+    pub draws: Option<i64>,
+    /// Opening hand size (default 7).
+    #[arg(long)]
+    pub opening: Option<i64>,
+    /// Section ids to shuffle (comma-separated); omit for the default library.
+    #[arg(long, value_name = "IDS", allow_hyphen_values = true)]
+    pub sections: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -137,14 +191,23 @@ pub enum FolderCommand {
 #[derive(Debug, Subcommand)]
 pub enum SectionCommand {
     /// Add a custom section.
-    Add { name: String },
-    /// Rename and/or reposition a section.
+    Add {
+        name: String,
+        /// File it as a maybeboard: its cards sit outside the deck proper and are
+        /// left out of the summary, legality, analytics and the needed list.
+        #[arg(long)]
+        maybeboard: bool,
+    },
+    /// Rename, reposition and/or flip a section's maybeboard flag.
     Update {
         section_id: i64,
         #[arg(long)]
         name: Option<String>,
         #[arg(long)]
         position: Option<i64>,
+        /// Move the section in or out of the maybeboard (`true`/`false`).
+        #[arg(long, action = clap::ArgAction::Set)]
+        maybeboard: Option<bool>,
     },
     /// Set the full section order.
     Reorder { section_ids: Vec<i64> },
@@ -384,6 +447,13 @@ pub async fn run(ctx: &Ctx, args: DecksArgs) -> Result<()> {
         }
         DecksCommand::Card { deck_id, command } => deck_card(ctx, &base, deck_id, command).await?,
         DecksCommand::Needed { mode } => needed(ctx, &base, mode).await?,
+        DecksCommand::Legality { deck_id } => legality(ctx, &format!("{base}/{deck_id}")).await?,
+        DecksCommand::Stats { deck_id, args } => {
+            stats(ctx, &format!("{base}/{deck_id}"), args).await?
+        }
+        DecksCommand::Goldfish { deck_id, args } => {
+            goldfish(ctx, &format!("{base}/{deck_id}"), args).await?
+        }
         DecksCommand::Visibility { deck_id, public } => {
             let body = serde_json::json!({ "public": public });
             let v: DeckVisibility = ctx
@@ -459,25 +529,36 @@ async fn folders(ctx: &Ctx, base: &str, cmd: FolderCommand) -> Result<()> {
 async fn sections(ctx: &Ctx, base: &str, deck_id: i64, cmd: SectionCommand) -> Result<()> {
     let sbase = format!("{base}/{deck_id}/sections");
     match cmd {
-        SectionCommand::Add { name } => {
-            let body = serde_json::json!({ "name": name });
+        SectionCommand::Add { name, maybeboard } => {
+            let body = serde_json::json!({ "name": name, "is_maybeboard": maybeboard });
             let s: DeckSection = ctx.client.post_json(&sbase, body).await?;
-            ctx.printer
-                .note(format!("Added section '{}' (id {}).", s.name, s.id));
+            ctx.printer.note(format!(
+                "Added {}section '{}' (id {}).",
+                if s.is_maybeboard { "maybeboard " } else { "" },
+                s.name,
+                s.id
+            ));
         }
         SectionCommand::Update {
             section_id,
             name,
             position,
+            maybeboard,
         } => {
-            let body = serde_json::json!({ "name": name, "position": position });
+            let body = serde_json::json!({
+                "name": name,
+                "position": position,
+                "is_maybeboard": maybeboard,
+            });
             let s: DeckSection = ctx
                 .client
                 .put_json(&format!("{sbase}/{section_id}"), body)
                 .await?;
             ctx.printer.note(format!(
-                "Updated section '{}' (position {}).",
-                s.name, s.position
+                "Updated section '{}' (position {}{}).",
+                s.name,
+                s.position,
+                if s.is_maybeboard { ", maybeboard" } else { "" }
             ));
         }
         SectionCommand::Reorder { section_ids } => {
@@ -580,6 +661,196 @@ async fn needed(ctx: &Ctx, base: &str, mode: NeededMode) -> Result<()> {
     Ok(())
 }
 
+// -- legality / analytics / goldfish -----------------------------------------
+//
+// These three reads exist twice over — once for your own decks under
+// `/api/decks/{game}/{deck_id}`, once for a shared one under
+// `/api/u/{handle}/decks/{deck_id}` — and are identical bar the base path, so
+// each handler takes the deck's base URL and `public.rs` reuses it.
+
+/// A deck's verdict against its own format. `data` is null when the format isn't
+/// one legality is tracked for — that means "nothing to evaluate", not "illegal".
+pub async fn legality(ctx: &Ctx, deck_base: &str) -> Result<()> {
+    let body: DataBody<Option<DeckLegality>> = ctx
+        .client
+        .get_json(&format!("{deck_base}/legality"), &[])
+        .await?;
+    if ctx.printer.json {
+        return ctx.printer.json(&body.data);
+    }
+    let Some(l) = body.data else {
+        println!("This deck's format isn't one legality is tracked for.");
+        return Ok(());
+    };
+    println!(
+        "{} [{}] — {}",
+        l.format_label,
+        l.format_key,
+        if l.legal { "LEGAL" } else { "NOT LEGAL" }
+    );
+    if l.unknown_count > 0 {
+        println!(
+            "  {} card(s) carry no legality data (not counted against the deck).",
+            l.unknown_count
+        );
+    }
+    if !l.violations.is_empty() {
+        println!();
+        for v in &l.violations {
+            println!("  [{}] {}: {}", v.severity, v.rule, v.message);
+        }
+    }
+    if !l.issues.is_empty() {
+        println!();
+        let mut t = table(&["Status", "Qty", "Card", "ID"]);
+        for i in &l.issues {
+            t.add_row(vec![
+                i.status.clone(),
+                i.quantity.to_string(),
+                output::truncate(&i.name, 40),
+                output::truncate(&i.card_id, 12),
+            ]);
+        }
+        println!("{t}");
+    }
+    if l.legal && l.issues.is_empty() && l.violations.is_empty() {
+        println!("  No issues.");
+    }
+    Ok(())
+}
+
+/// The deck's copy-weighted composition, the same fold over the shuffled library,
+/// and the draw-odds curve for one card.
+pub async fn stats(ctx: &Ctx, deck_base: &str, args: StatsArgs) -> Result<()> {
+    let mut q: Vec<(&str, String)> = Vec::new();
+    push_opt(&mut q, "sections", &args.sections);
+    push_opt(&mut q, "card", &args.card);
+    push_opt(&mut q, "cards_seen", &args.cards_seen);
+    let a: DeckAnalytics = ctx
+        .client
+        .get_json(&format!("{deck_base}/stats"), &q)
+        .await?;
+    if ctx.printer.json {
+        return ctx.printer.json(&a);
+    }
+    print_composition("Deck", &a.deck);
+    print_composition("Library", &a.library);
+    println!(
+        "\nLibrary sections: {}",
+        join_ids(&a.library_section_ids, "(none)")
+    );
+    match &a.odds {
+        None => println!("\nNo draw odds — the library pool is empty."),
+        Some(o) => {
+            println!(
+                "\nDraw odds for {} — {} cop{} in {} cards:",
+                o.name,
+                o.copies,
+                if o.copies == 1 { "y" } else { "ies" },
+                o.library_size
+            );
+            println!(
+                "  {:.1}% to see at least one after {} cards.",
+                o.at_least_one * 100.0,
+                o.cards_seen
+            );
+            // The API returns the whole curve so a slider can be scrubbed; a
+            // terminal wants a few checkpoints, not thirty rows.
+            let mut t = table(&["Cards seen", "P(≥1)"]);
+            for seen in [1usize, 7, 10, 15, 20, 30] {
+                if let Some(p) = o.curve.get(seen - 1) {
+                    t.add_row(vec![seen.to_string(), format!("{:.1}%", p * 100.0)]);
+                }
+            }
+            println!("{t}");
+        }
+    }
+    Ok(())
+}
+
+fn print_composition(label: &str, c: &DeckComposition) {
+    println!(
+        "\n== {label} ==  {} copies · {} unique · {} lands · avg MV {}",
+        c.total_copies,
+        c.unique_cards,
+        c.land_copies,
+        c.average_mana_value
+            .map(|v| format!("{v:.2}"))
+            .unwrap_or_else(|| "—".to_string())
+    );
+    print_distribution("Curve", &c.mana_curve);
+    print_distribution("Colours", &c.colors);
+    print_distribution("Types", &c.card_types);
+}
+
+/// One distribution as a single line of `bucket:count` pairs — a terminal reads
+/// that faster than three more bordered tables.
+fn print_distribution(label: &str, items: &[DeckStatItem]) {
+    let shown: Vec<String> = items
+        .iter()
+        .filter(|i| i.count > 0)
+        .map(|i| format!("{} {}", i.label, i.count))
+        .collect();
+    if shown.is_empty() {
+        return;
+    }
+    println!("  {label:<8}: {}", shown.join(" · "));
+}
+
+/// Shuffle the library and deal a sample opening hand.
+pub async fn goldfish(ctx: &Ctx, deck_base: &str, args: GoldfishArgs) -> Result<()> {
+    let mut q: Vec<(&str, String)> = Vec::new();
+    push_opt(&mut q, "seed", &args.seed);
+    push_opt(&mut q, "mulligans", &args.mulligans);
+    push_opt(&mut q, "bottom", &args.bottom);
+    push_opt(&mut q, "draws", &args.draws);
+    push_opt(&mut q, "opening", &args.opening);
+    push_opt(&mut q, "sections", &args.sections);
+    let h: GoldfishHand = ctx
+        .client
+        .get_json(&format!("{deck_base}/goldfish"), &q)
+        .await?;
+    if ctx.printer.json {
+        return ctx.printer.json(&h);
+    }
+    println!(
+        "seed {} · opening {} · mulligans {} · draws {} · {} of {} left in the library",
+        h.seed, h.opening, h.mulligans, h.draws, h.library_size, h.library_total
+    );
+    println!("sections: {}", join_ids(&h.section_ids, "(none)"));
+    if h.hand.is_empty() {
+        println!("\n(no cards — the library is empty)");
+    } else {
+        println!();
+        cards_table(&h.hand);
+    }
+    if !h.bottomed.is_empty() {
+        println!("\nBottomed:");
+        cards_table(&h.bottomed);
+    }
+    if h.to_bottom > 0 {
+        ctx.printer.note(format!(
+            "\n{} more card(s) still to go to the bottom — name them with --bottom <card-ids>.",
+            h.to_bottom
+        ));
+    }
+    ctx.printer.note(format!(
+        "Replay this hand with --seed {} (plus the same options).",
+        h.seed
+    ));
+    Ok(())
+}
+
+fn join_ids(ids: &[i64], empty: &str) -> String {
+    if ids.is_empty() {
+        return empty.to_string();
+    }
+    ids.iter()
+        .map(|i| i.to_string())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 fn print_deck_detail(d: &DeckDetail) {
     println!("{}  [id {}]", d.name, d.id);
     println!(
@@ -589,6 +860,17 @@ fn print_deck_detail(d: &DeckDetail) {
         output::price(&d.summary.total_value_usd),
         d.is_public
     );
+    // The deck's own totals exclude the maybeboard, so report it separately when
+    // there's anything being considered.
+    if let Some(m) = &d.maybeboard_summary
+        && m.total_cards > 0
+    {
+        println!(
+            "  maybeboard: {} cards · {}",
+            m.total_cards,
+            output::price(&m.total_value_usd)
+        );
+    }
     if let Some(desc) = &d.description
         && !desc.is_empty()
     {
@@ -606,7 +888,15 @@ fn print_deck_detail(d: &DeckDetail) {
         if count == 0 {
             continue;
         }
-        println!("\n== {} ({count}) ==", section.name);
+        println!(
+            "\n== {} ({count}){} ==",
+            section.name,
+            if section.is_maybeboard {
+                "  [maybeboard]"
+            } else {
+                ""
+            }
+        );
         if let Some(cards) = cards {
             let mut t = table(&["Qty", "Foil", "Name", "Set", "#"]);
             for c in cards {
