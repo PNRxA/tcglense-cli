@@ -8,125 +8,384 @@ DELETE /api/tools/{game}/life/sessions/{session_id}/events/{event_id}
 DELETE /api/tools/{game}/life/sessions/{session_id}/players/{player_id}
 GET /api/auth/api-keys
 GET /api/collection/{game}
+GET /api/collection/{game} ?dir
+GET /api/collection/{game} ?include_related
+GET /api/collection/{game} ?page
+GET /api/collection/{game} ?page_size
+GET /api/collection/{game} ?q
+GET /api/collection/{game} ?set
+GET /api/collection/{game} ?sort
 GET /api/collection/{game}/cards/export
+GET /api/collection/{game}/cards/export ?dir
+GET /api/collection/{game}/cards/export ?format
+GET /api/collection/{game}/cards/export ?include_related
+GET /api/collection/{game}/cards/export ?q
+GET /api/collection/{game}/cards/export ?set
+GET /api/collection/{game}/cards/export ?sort
 GET /api/collection/{game}/cards/{id}
 GET /api/collection/{game}/export
+GET /api/collection/{game}/export ?format
 GET /api/collection/{game}/import/jobs/{job_id}
 GET /api/collection/{game}/movers
+GET /api/collection/{game}/movers ?window
 GET /api/collection/{game}/products
+GET /api/collection/{game}/products ?page
+GET /api/collection/{game}/products ?page_size
+GET /api/collection/{game}/products ?set
 GET /api/collection/{game}/products/sets
 GET /api/collection/{game}/products/summary
 GET /api/collection/{game}/products/{id}
 GET /api/collection/{game}/sets
+GET /api/collection/{game}/sets ?bulk_max_cents
 GET /api/collection/{game}/sets/{code}/drops
+GET /api/collection/{game}/sets/{code}/drops ?page
+GET /api/collection/{game}/sets/{code}/drops ?page_size
+GET /api/collection/{game}/sets/{code}/drops ?q
 GET /api/collection/{game}/sets/{code}/subtypes
+GET /api/collection/{game}/sets/{code}/subtypes ?page
+GET /api/collection/{game}/sets/{code}/subtypes ?page_size
+GET /api/collection/{game}/sets/{code}/subtypes ?q
 GET /api/collection/{game}/source
 GET /api/collection/{game}/summary
+GET /api/collection/{game}/summary ?include_related
+GET /api/collection/{game}/summary ?set
 GET /api/collection/{game}/value-history
+GET /api/collection/{game}/value-history ?range
 GET /api/collection/{game}/visibility
 GET /api/decks/{game}
 GET /api/decks/{game}/folders
 GET /api/decks/{game}/needed
+GET /api/decks/{game}/needed ?mode
 GET /api/decks/{game}/{deck_id}
 GET /api/decks/{game}/{deck_id}/export
+GET /api/decks/{game}/{deck_id}/export ?format
+GET /api/decks/{game}/{deck_id}/goldfish
+GET /api/decks/{game}/{deck_id}/goldfish ?bottom
+GET /api/decks/{game}/{deck_id}/goldfish ?draws
+GET /api/decks/{game}/{deck_id}/goldfish ?mulligans
+GET /api/decks/{game}/{deck_id}/goldfish ?opening
+GET /api/decks/{game}/{deck_id}/goldfish ?sections
+GET /api/decks/{game}/{deck_id}/goldfish ?seed
+GET /api/decks/{game}/{deck_id}/legality
+GET /api/decks/{game}/{deck_id}/stats
+GET /api/decks/{game}/{deck_id}/stats ?card
+GET /api/decks/{game}/{deck_id}/stats ?cards_seen
+GET /api/decks/{game}/{deck_id}/stats ?sections
 GET /api/games
 GET /api/games/{game}/art-tags
+GET /api/games/{game}/art-tags ?limit
+GET /api/games/{game}/art-tags ?q
 GET /api/games/{game}/card-names
+GET /api/games/{game}/card-names ?limit
+GET /api/games/{game}/card-names ?q
 GET /api/games/{game}/cards
+GET /api/games/{game}/cards ?dir
+GET /api/games/{game}/cards ?name
+GET /api/games/{game}/cards ?page
+GET /api/games/{game}/cards ?page_size
+GET /api/games/{game}/cards ?q
+GET /api/games/{game}/cards ?sort
 GET /api/games/{game}/cards/export
+GET /api/games/{game}/cards/export ?dir
+GET /api/games/{game}/cards/export ?format
+GET /api/games/{game}/cards/export ?name
+GET /api/games/{game}/cards/export ?q
+GET /api/games/{game}/cards/export ?sort
 GET /api/games/{game}/cards/{id}
 GET /api/games/{game}/cards/{id}/art-tags
 GET /api/games/{game}/cards/{id}/prices
+GET /api/games/{game}/cards/{id}/prices ?range
 GET /api/games/{game}/cards/{id}/prints
 GET /api/games/{game}/cards/{id}/rulings
 GET /api/games/{game}/cards/{id}/sealed
+GET /api/games/{game}/formats
 GET /api/games/{game}/keywords
 GET /api/games/{game}/products
+GET /api/games/{game}/products ?dir
+GET /api/games/{game}/products ?page
+GET /api/games/{game}/products ?page_size
+GET /api/games/{game}/products ?q
+GET /api/games/{game}/products ?set
+GET /api/games/{game}/products ?sort
+GET /api/games/{game}/products ?type
 GET /api/games/{game}/products/facets
 GET /api/games/{game}/products/{id}
 GET /api/games/{game}/products/{id}/cards
+GET /api/games/{game}/products/{id}/cards ?dir
+GET /api/games/{game}/products/{id}/cards ?page
+GET /api/games/{game}/products/{id}/cards ?page_size
+GET /api/games/{game}/products/{id}/cards ?q
+GET /api/games/{game}/products/{id}/cards ?section
+GET /api/games/{game}/products/{id}/cards ?sort
 GET /api/games/{game}/products/{id}/cards/sections
+GET /api/games/{game}/products/{id}/cards/sections ?q
 GET /api/games/{game}/products/{id}/containers
 GET /api/games/{game}/products/{id}/contents
 GET /api/games/{game}/products/{id}/prices
+GET /api/games/{game}/products/{id}/prices ?range
 GET /api/games/{game}/sets
 GET /api/games/{game}/sets/{code}
 GET /api/games/{game}/sets/{code}/cards
+GET /api/games/{game}/sets/{code}/cards ?dir
+GET /api/games/{game}/sets/{code}/cards ?include_related
+GET /api/games/{game}/sets/{code}/cards ?page
+GET /api/games/{game}/sets/{code}/cards ?page_size
+GET /api/games/{game}/sets/{code}/cards ?q
+GET /api/games/{game}/sets/{code}/cards ?sort
 GET /api/games/{game}/sets/{code}/cards/export
+GET /api/games/{game}/sets/{code}/cards/export ?dir
+GET /api/games/{game}/sets/{code}/cards/export ?format
+GET /api/games/{game}/sets/{code}/cards/export ?include_related
+GET /api/games/{game}/sets/{code}/cards/export ?q
+GET /api/games/{game}/sets/{code}/cards/export ?sort
 GET /api/games/{game}/sets/{code}/drops
+GET /api/games/{game}/sets/{code}/drops ?drop
+GET /api/games/{game}/sets/{code}/drops ?page
+GET /api/games/{game}/sets/{code}/drops ?page_size
+GET /api/games/{game}/sets/{code}/drops ?q
 GET /api/games/{game}/sets/{code}/subtypes
+GET /api/games/{game}/sets/{code}/subtypes ?page
+GET /api/games/{game}/sets/{code}/subtypes ?page_size
+GET /api/games/{game}/sets/{code}/subtypes ?q
 GET /api/games/{game}/status
 GET /api/tools/{game}/life/decks
+GET /api/tools/{game}/life/decks ?deck_id
 GET /api/tools/{game}/life/sessions
+GET /api/tools/{game}/life/sessions ?limit
+GET /api/tools/{game}/life/sessions ?status
 GET /api/tools/{game}/life/sessions/{session_id}
 GET /api/u/{handle}
 GET /api/u/{handle}/decks
 GET /api/u/{handle}/decks/{deck_id}
+GET /api/u/{handle}/decks/{deck_id}/goldfish
+GET /api/u/{handle}/decks/{deck_id}/goldfish ?bottom
+GET /api/u/{handle}/decks/{deck_id}/goldfish ?draws
+GET /api/u/{handle}/decks/{deck_id}/goldfish ?mulligans
+GET /api/u/{handle}/decks/{deck_id}/goldfish ?opening
+GET /api/u/{handle}/decks/{deck_id}/goldfish ?sections
+GET /api/u/{handle}/decks/{deck_id}/goldfish ?seed
+GET /api/u/{handle}/decks/{deck_id}/legality
+GET /api/u/{handle}/decks/{deck_id}/stats
+GET /api/u/{handle}/decks/{deck_id}/stats ?card
+GET /api/u/{handle}/decks/{deck_id}/stats ?cards_seen
+GET /api/u/{handle}/decks/{deck_id}/stats ?sections
 GET /api/u/{handle}/wishlist/{game}
+GET /api/u/{handle}/wishlist/{game} ?dir
+GET /api/u/{handle}/wishlist/{game} ?include_related
+GET /api/u/{handle}/wishlist/{game} ?page
+GET /api/u/{handle}/wishlist/{game} ?page_size
+GET /api/u/{handle}/wishlist/{game} ?q
+GET /api/u/{handle}/wishlist/{game} ?set
+GET /api/u/{handle}/wishlist/{game} ?sort
 GET /api/u/{handle}/wishlist/{game}/products
+GET /api/u/{handle}/wishlist/{game}/products ?page
+GET /api/u/{handle}/wishlist/{game}/products ?page_size
+GET /api/u/{handle}/wishlist/{game}/products ?set
 GET /api/u/{handle}/wishlist/{game}/products/sets
 GET /api/u/{handle}/wishlist/{game}/products/summary
 GET /api/u/{handle}/wishlist/{game}/sets
+GET /api/u/{handle}/wishlist/{game}/sets ?bulk_max_cents
 GET /api/u/{handle}/wishlist/{game}/sets/{code}/drops
+GET /api/u/{handle}/wishlist/{game}/sets/{code}/drops ?page
+GET /api/u/{handle}/wishlist/{game}/sets/{code}/drops ?page_size
+GET /api/u/{handle}/wishlist/{game}/sets/{code}/drops ?q
 GET /api/u/{handle}/wishlist/{game}/sets/{code}/subtypes
+GET /api/u/{handle}/wishlist/{game}/sets/{code}/subtypes ?page
+GET /api/u/{handle}/wishlist/{game}/sets/{code}/subtypes ?page_size
+GET /api/u/{handle}/wishlist/{game}/sets/{code}/subtypes ?q
 GET /api/u/{handle}/wishlist/{game}/summary
+GET /api/u/{handle}/wishlist/{game}/summary ?bulk_max_cents
+GET /api/u/{handle}/wishlist/{game}/summary ?include_related
+GET /api/u/{handle}/wishlist/{game}/summary ?set
 GET /api/u/{handle}/{game}
+GET /api/u/{handle}/{game} ?dir
+GET /api/u/{handle}/{game} ?include_related
+GET /api/u/{handle}/{game} ?page
+GET /api/u/{handle}/{game} ?page_size
+GET /api/u/{handle}/{game} ?q
+GET /api/u/{handle}/{game} ?set
+GET /api/u/{handle}/{game} ?sort
 GET /api/u/{handle}/{game}/products
+GET /api/u/{handle}/{game}/products ?page
+GET /api/u/{handle}/{game}/products ?page_size
+GET /api/u/{handle}/{game}/products ?set
 GET /api/u/{handle}/{game}/products/sets
 GET /api/u/{handle}/{game}/products/summary
 GET /api/u/{handle}/{game}/sets
+GET /api/u/{handle}/{game}/sets ?bulk_max_cents
 GET /api/u/{handle}/{game}/sets/{code}/drops
+GET /api/u/{handle}/{game}/sets/{code}/drops ?page
+GET /api/u/{handle}/{game}/sets/{code}/drops ?page_size
+GET /api/u/{handle}/{game}/sets/{code}/drops ?q
 GET /api/u/{handle}/{game}/sets/{code}/subtypes
+GET /api/u/{handle}/{game}/sets/{code}/subtypes ?page
+GET /api/u/{handle}/{game}/sets/{code}/subtypes ?page_size
+GET /api/u/{handle}/{game}/sets/{code}/subtypes ?q
 GET /api/u/{handle}/{game}/summary
+GET /api/u/{handle}/{game}/summary ?bulk_max_cents
+GET /api/u/{handle}/{game}/summary ?include_related
+GET /api/u/{handle}/{game}/summary ?set
 GET /api/wishlist/{game}
+GET /api/wishlist/{game} ?dir
+GET /api/wishlist/{game} ?include_related
+GET /api/wishlist/{game} ?page
+GET /api/wishlist/{game} ?page_size
+GET /api/wishlist/{game} ?q
+GET /api/wishlist/{game} ?set
+GET /api/wishlist/{game} ?sort
 GET /api/wishlist/{game}/cards/export
+GET /api/wishlist/{game}/cards/export ?dir
+GET /api/wishlist/{game}/cards/export ?format
+GET /api/wishlist/{game}/cards/export ?include_related
+GET /api/wishlist/{game}/cards/export ?q
+GET /api/wishlist/{game}/cards/export ?set
+GET /api/wishlist/{game}/cards/export ?sort
 GET /api/wishlist/{game}/cards/{id}
 GET /api/wishlist/{game}/products
+GET /api/wishlist/{game}/products ?page
+GET /api/wishlist/{game}/products ?page_size
+GET /api/wishlist/{game}/products ?set
 GET /api/wishlist/{game}/products/sets
 GET /api/wishlist/{game}/products/summary
 GET /api/wishlist/{game}/products/{id}
 GET /api/wishlist/{game}/sets
+GET /api/wishlist/{game}/sets ?bulk_max_cents
 GET /api/wishlist/{game}/sets/{code}/drops
+GET /api/wishlist/{game}/sets/{code}/drops ?page
+GET /api/wishlist/{game}/sets/{code}/drops ?page_size
+GET /api/wishlist/{game}/sets/{code}/drops ?q
 GET /api/wishlist/{game}/sets/{code}/subtypes
+GET /api/wishlist/{game}/sets/{code}/subtypes ?page
+GET /api/wishlist/{game}/sets/{code}/subtypes ?page_size
+GET /api/wishlist/{game}/sets/{code}/subtypes ?q
 GET /api/wishlist/{game}/summary
+GET /api/wishlist/{game}/summary ?include_related
+GET /api/wishlist/{game}/summary ?set
 GET /api/wishlist/{game}/visibility
 POST /api/auth/api-keys
+POST /api/auth/api-keys +expires_in_days
+POST /api/auth/api-keys +name
+POST /api/auth/api-keys +scope
 POST /api/collection/{game}/import
+POST /api/collection/{game}/import +mode
+POST /api/collection/{game}/import +provider
+POST /api/collection/{game}/import +source
 POST /api/collection/{game}/import/csv
+POST /api/collection/{game}/import/csv ?mode
 POST /api/collection/{game}/import/text
+POST /api/collection/{game}/import/text ?mode
 POST /api/collection/{game}/owned
+POST /api/collection/{game}/owned +ids
 POST /api/collection/{game}/products/owned
+POST /api/collection/{game}/products/owned +ids
 POST /api/collection/{game}/sync
 POST /api/decks/{game}
+POST /api/decks/{game} +description
+POST /api/decks/{game} +folder_id
+POST /api/decks/{game} +format
+POST /api/decks/{game} +name
 POST /api/decks/{game}/folders
+POST /api/decks/{game}/folders +name
 POST /api/decks/{game}/import
+POST /api/decks/{game}/import +auto_categorize
+POST /api/decks/{game}/import +contents
+POST /api/decks/{game}/import +format
+POST /api/decks/{game}/import +name
+POST /api/decks/{game}/import +provider
+POST /api/decks/{game}/import +source
 POST /api/decks/{game}/{deck_id}/sections
+POST /api/decks/{game}/{deck_id}/sections +is_maybeboard
+POST /api/decks/{game}/{deck_id}/sections +name
 POST /api/games/{game}/scan
+POST /api/games/{game}/scan +fingerprints
+POST /api/games/{game}/scan +top_k
 POST /api/tools/{game}/life/sessions
+POST /api/tools/{game}/life/sessions +counters
+POST /api/tools/{game}/life/sessions +format
+POST /api/tools/{game}/life/sessions +from_session_id
+POST /api/tools/{game}/life/sessions +layout
+POST /api/tools/{game}/life/sessions +name
+POST /api/tools/{game}/life/sessions +players
+POST /api/tools/{game}/life/sessions +starting_life
 POST /api/tools/{game}/life/sessions/{session_id}/finish
+POST /api/tools/{game}/life/sessions/{session_id}/finish +winner_player_id
 POST /api/tools/{game}/life/sessions/{session_id}/players
+POST /api/tools/{game}/life/sessions/{session_id}/players +commander_card_id
+POST /api/tools/{game}/life/sessions/{session_id}/players +deck_id
+POST /api/tools/{game}/life/sessions/{session_id}/players +name
+POST /api/tools/{game}/life/sessions/{session_id}/players +rotation
+POST /api/tools/{game}/life/sessions/{session_id}/players +starting_life
 POST /api/tools/{game}/life/sessions/{session_id}/players/{player_id}/life
+POST /api/tools/{game}/life/sessions/{session_id}/players/{player_id}/life +counter
+POST /api/tools/{game}/life/sessions/{session_id}/players/{player_id}/life +delta
+POST /api/tools/{game}/life/sessions/{session_id}/players/{player_id}/life +life
+POST /api/tools/{game}/life/sessions/{session_id}/players/{player_id}/life +source_player_id
 POST /api/u/{handle}/decks/{deck_id}/copy
 POST /api/u/{handle}/wishlist/{game}/owned
+POST /api/u/{handle}/wishlist/{game}/owned +ids
 POST /api/u/{handle}/{game}/owned
+POST /api/u/{handle}/{game}/owned +ids
 POST /api/wishlist/{game}/counts
+POST /api/wishlist/{game}/counts +ids
 POST /api/wishlist/{game}/products/counts
+POST /api/wishlist/{game}/products/counts +ids
 PUT /api/collection/{game}/cards/{id}
+PUT /api/collection/{game}/cards/{id} +foil_quantity
+PUT /api/collection/{game}/cards/{id} +quantity
 PUT /api/collection/{game}/products/{id}
+PUT /api/collection/{game}/products/{id} +foil_quantity
+PUT /api/collection/{game}/products/{id} +quantity
 PUT /api/collection/{game}/source
+PUT /api/collection/{game}/source +provider
+PUT /api/collection/{game}/source +smart
+PUT /api/collection/{game}/source +source
 PUT /api/collection/{game}/visibility
+PUT /api/collection/{game}/visibility +public
+PUT /api/collection/{game}/visibility +show_movers
+PUT /api/collection/{game}/visibility +show_value_chart
 PUT /api/decks/{game}/folders/{folder_id}
+PUT /api/decks/{game}/folders/{folder_id} +name
 PUT /api/decks/{game}/{deck_id}
+PUT /api/decks/{game}/{deck_id} +description
+PUT /api/decks/{game}/{deck_id} +format
+PUT /api/decks/{game}/{deck_id} +name
 PUT /api/decks/{game}/{deck_id}/cards/{id}
+PUT /api/decks/{game}/{deck_id}/cards/{id} +foil_quantity
+PUT /api/decks/{game}/{deck_id}/cards/{id} +quantity
+PUT /api/decks/{game}/{deck_id}/cards/{id} +section_id
 PUT /api/decks/{game}/{deck_id}/cards/{id}/move
+PUT /api/decks/{game}/{deck_id}/cards/{id}/move +from_section_id
+PUT /api/decks/{game}/{deck_id}/cards/{id}/move +to_section_id
 PUT /api/decks/{game}/{deck_id}/cards/{id}/printing
+PUT /api/decks/{game}/{deck_id}/cards/{id}/printing +new_card_id
+PUT /api/decks/{game}/{deck_id}/cards/{id}/printing +section_id
 PUT /api/decks/{game}/{deck_id}/folder
+PUT /api/decks/{game}/{deck_id}/folder +folder_id
 PUT /api/decks/{game}/{deck_id}/sections/reorder
+PUT /api/decks/{game}/{deck_id}/sections/reorder +section_ids
 PUT /api/decks/{game}/{deck_id}/sections/{section_id}
+PUT /api/decks/{game}/{deck_id}/sections/{section_id} +is_maybeboard
+PUT /api/decks/{game}/{deck_id}/sections/{section_id} +name
+PUT /api/decks/{game}/{deck_id}/sections/{section_id} +position
 PUT /api/decks/{game}/{deck_id}/visibility
+PUT /api/decks/{game}/{deck_id}/visibility +public
 PUT /api/tools/{game}/life/sessions/{session_id}
+PUT /api/tools/{game}/life/sessions/{session_id} +counters
+PUT /api/tools/{game}/life/sessions/{session_id} +format
+PUT /api/tools/{game}/life/sessions/{session_id} +layout
+PUT /api/tools/{game}/life/sessions/{session_id} +name
 PUT /api/tools/{game}/life/sessions/{session_id}/players/reorder
+PUT /api/tools/{game}/life/sessions/{session_id}/players/reorder +player_ids
 PUT /api/tools/{game}/life/sessions/{session_id}/players/{player_id}
+PUT /api/tools/{game}/life/sessions/{session_id}/players/{player_id} +commander_card_id
+PUT /api/tools/{game}/life/sessions/{session_id}/players/{player_id} +deck_id
+PUT /api/tools/{game}/life/sessions/{session_id}/players/{player_id} +name
+PUT /api/tools/{game}/life/sessions/{session_id}/players/{player_id} +rotation
 PUT /api/wishlist/{game}/cards/{id}
+PUT /api/wishlist/{game}/cards/{id} +foil_quantity
+PUT /api/wishlist/{game}/cards/{id} +quantity
 PUT /api/wishlist/{game}/products/{id}
+PUT /api/wishlist/{game}/products/{id} +foil_quantity
+PUT /api/wishlist/{game}/products/{id} +quantity
 PUT /api/wishlist/{game}/visibility
+PUT /api/wishlist/{game}/visibility +public

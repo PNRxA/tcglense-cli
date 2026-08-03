@@ -128,16 +128,19 @@ pipelines); the default is human-friendly tables.
 # Catalog (public — no auth needed)
 tcglense games
 tcglense sets mtg
-tcglense set mtg blb --cards -q 't:creature c:g'
-tcglense cards mtg -q 'lightning bolt'
-tcglense card mtg <card-id>
+tcglense set mtg blb --cards -q 't:creature c:g' --sort price --dir desc
+tcglense set mtg sld --drops --drop 'happy'          # Secret Lair drops, filtered by title
+tcglense cards mtg -q 'lightning bolt' --sort price --dir desc
+tcglense card mtg <card-id>                          # detail, incl. per-format legality
 tcglense prices mtg <card-id> --range 1y
 tcglense prints mtg <card-id>
 tcglense rulings mtg <card-id>
 tcglense sealed mtg <card-id>
 tcglense products mtg --set blb --sort price --dir desc
 tcglense product mtg <product-id> contents
+tcglense product mtg <product-id> cards -q 't:creature' --sort price --dir desc
 tcglense keywords mtg --full                         # the rules glossary
+tcglense formats mtg --popular                       # formats legality is tracked for
 tcglense art-tags mtg -q squirrel                    # tags the `art:` filter matches
 tcglense art-tags mtg --card <card-id>               # what this artwork depicts
 tcglense export cards mtg -q 't:goblin' -o goblins.txt   # whole result set as a .txt list
@@ -153,6 +156,7 @@ tcglense collection mtg import-text list.txt --mode merge   # or pipe a paste on
 tcglense collection mtg export --format archidekt -o backup.csv
 tcglense collection mtg export-cards -q 'is:foil' -o foils.txt
 tcglense collection mtg movers --window week
+tcglense collection mtg sets --bulk-max 200          # split bulk at $2/card instead of $1
 tcglense collection mtg products list
 
 # Wish list (mirrors the collection card ops)
@@ -167,11 +171,19 @@ tcglense decks mtg show <deck-id>
 tcglense decks mtg card <deck-id> set <card-id> --section <section-id> --qty 1
 tcglense decks mtg export <deck-id> --format moxfield-text
 tcglense decks mtg needed --mode card                # cards your decks want but you don't own
+tcglense decks mtg sections <deck-id> add "Considering" --maybeboard
+tcglense decks mtg legality <deck-id>                # verdict against the deck's own format
+tcglense decks mtg stats <deck-id> --card 'Sol Ring' # curve, colours, types + draw odds
+tcglense decks mtg goldfish <deck-id> --mulligans 1 --bottom <card-id>   # sample opener
 
 # Life tracker (auth required)
 tcglense life mtg start --player 'Alice,deck=12' --player 'Bob,commander=<card-id>'
+tcglense life mtg start --player Alice --player Bob --counter commander_damage --counter poison
 tcglense life mtg adjust <session-id> <player-id> --delta -3
-tcglense life mtg show <session-id>                  # seats + the whole life history
+tcglense life mtg adjust <session-id> <player-id> --counter poison --delta 1
+tcglense life mtg adjust <session-id> <player-id> --counter commander_damage --from <player-id> --delta 3
+tcglense life mtg update <session-id> --no-counters   # track life only
+tcglense life mtg show <session-id>                  # seats, counters + the whole history
 tcglense life mtg undo <session-id> <event-id>       # drop one change, re-derive the seat
 tcglense life mtg finish <session-id> --winner <player-id>
 tcglense life mtg start --from <session-id>          # rematch the same pod
@@ -182,7 +194,11 @@ tcglense public alice-0001 profile
 tcglense public alice-0001 collection mtg summary
 tcglense public alice-0001 collection mtg products list
 tcglense public alice-0001 wishlist mtg summary
+tcglense public alice-0001 collection mtg sets --bulk-max 200
 tcglense public alice-0001 decks
+tcglense public alice-0001 deck <deck-id> legality
+tcglense public alice-0001 deck <deck-id> stats
+tcglense public alice-0001 deck <deck-id> goldfish --seed 42
 tcglense public alice-0001 deck <deck-id> copy       # clone a public deck into your own
 
 # Server / meta

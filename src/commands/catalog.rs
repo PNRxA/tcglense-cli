@@ -35,9 +35,18 @@ pub struct SetArgs {
     /// Scryfall-style filter query.
     #[arg(short = 'q', long)]
     pub query: Option<String>,
+    /// With --drops, keep only drops whose title matches (case-insensitive).
+    #[arg(long, value_name = "TITLE")]
+    pub drop: Option<String>,
     /// Span the set's whole group (root + related tokens/promos/decks).
     #[arg(long)]
     pub related: bool,
+    /// With --cards, sort key: number | name | rarity | released | cmc | price.
+    #[arg(long)]
+    pub sort: Option<String>,
+    /// Direction: asc | desc.
+    #[arg(long)]
+    pub dir: Option<String>,
     #[arg(long)]
     pub page: Option<u32>,
     #[arg(long)]
@@ -59,6 +68,12 @@ pub struct CardsArgs {
     /// With --set, span the set's whole group.
     #[arg(long)]
     pub related: bool,
+    /// Sort key: name | number | rarity | released | cmc | price.
+    #[arg(long)]
+    pub sort: Option<String>,
+    /// Direction: asc | desc.
+    #[arg(long)]
+    pub dir: Option<String>,
     #[arg(long)]
     pub page: Option<u32>,
     #[arg(long)]
@@ -165,20 +180,42 @@ pub enum ProductCommand {
     Containers,
     /// Cards the product contains / can yield.
     Cards {
+        /// Restrict to one display section: contains | exclusive | booster | variable.
         #[arg(long)]
         section: Option<String>,
+        /// Scryfall-style filter narrowing the product's cards.
+        #[arg(short = 'q', long)]
+        query: Option<String>,
+        /// Sort key: name | rarity | cmc | price | … (re-orders within each section).
+        #[arg(long)]
+        sort: Option<String>,
+        /// Direction: asc | desc.
+        #[arg(long)]
+        dir: Option<String>,
         #[arg(long)]
         page: Option<u32>,
         #[arg(long)]
         page_size: Option<u32>,
     },
     /// The non-empty card display sections + counts.
-    Sections,
+    Sections {
+        /// Scryfall-style filter — the manifest narrows to matching sections + counts.
+        #[arg(short = 'q', long)]
+        query: Option<String>,
+    },
 }
 
 #[derive(Debug, Args)]
 pub struct IngestArgs {
     pub game: String,
+}
+
+#[derive(Debug, Args)]
+pub struct FormatsArgs {
+    pub game: String,
+    /// Only the most-played formats.
+    #[arg(long)]
+    pub popular: bool,
 }
 
 #[derive(Debug, Args)]
@@ -319,16 +356,21 @@ pub async fn set(ctx: &Ctx, args: SetArgs) -> Result<()> {
     push_opt(&mut q, "page_size", &args.page_size);
 
     if args.drops {
+        push_opt(&mut q, "drop", &args.drop);
         let page: Page<DropGroup> = ctx.client.get_json(&format!("{base}/drops"), &q).await?;
         if ctx.printer.json {
             ctx.printer.json(&page)?;
         } else {
             for g in &page.data {
                 println!(
-                    "\n== {} ({} cards, {}) ==",
+                    "\n== {} ({} cards, {}{}) ==",
                     g.title,
                     g.card_count,
-                    output::price(&g.cheapest_prints_usd)
+                    output::price(&g.cheapest_prints_usd),
+                    match &g.released_at {
+                        Some(d) => format!(", {d}"),
+                        None => String::new(),
+                    }
                 );
                 cards_table(&g.cards);
             }
@@ -347,6 +389,8 @@ pub async fn set(ctx: &Ctx, args: SetArgs) -> Result<()> {
         }
     } else if args.cards {
         push_flag(&mut q, "include_related", args.related);
+        push_opt(&mut q, "sort", &args.sort);
+        push_opt(&mut q, "dir", &args.dir);
         let page: Page<Card> = ctx.client.get_json(&format!("{base}/cards"), &q).await?;
         print_card_page(ctx, page);
     } else {
@@ -369,6 +413,8 @@ pub async fn set(ctx: &Ctx, args: SetArgs) -> Result<()> {
 pub async fn cards(ctx: &Ctx, args: CardsArgs) -> Result<()> {
     let mut q: Vec<(&str, String)> = Vec::new();
     push_opt(&mut q, "q", &args.query);
+    push_opt(&mut q, "sort", &args.sort);
+    push_opt(&mut q, "dir", &args.dir);
     push_opt(&mut q, "page", &args.page);
     push_opt(&mut q, "page_size", &args.page_size);
 
@@ -499,6 +545,37 @@ pub async fn keywords(ctx: &Ctx, args: KeywordsArgs) -> Result<()> {
             "{} entries (--full for each explanation).",
             body.data.len()
         ));
+    }
+    Ok(())
+}
+
+/// The formats this game tracks deck legality for — the spellings `decks … create
+/// --format` accepts, so a format can be checked without hard-coding the list.
+pub async fn formats(ctx: &Ctx, args: FormatsArgs) -> Result<()> {
+    let path = format!("/api/games/{}/formats", args.game);
+    let body: DataBody<Vec<DeckFormat>> = ctx.client.get_json(&path, &[]).await?;
+    let formats: Vec<&DeckFormat> = body
+        .data
+        .iter()
+        .filter(|f| !args.popular || f.popular)
+        .collect();
+    if ctx.printer.json {
+        ctx.printer.json(&formats)?;
+    } else if formats.is_empty() {
+        println!("No legality-tracked formats for this game.");
+    } else {
+        let mut t = table(&["Label", "Key", "Group", "Popular", "Also accepts"]);
+        for f in &formats {
+            t.add_row(vec![
+                f.label.clone(),
+                f.key.clone(),
+                f.group.clone(),
+                if f.popular { "yes" } else { "" }.to_string(),
+                output::truncate(&f.aliases.join(", "), 40),
+            ]);
+        }
+        println!("{t}");
+        ctx.printer.note(format!("{} formats.", formats.len()));
     }
     Ok(())
 }
@@ -754,11 +831,17 @@ pub async fn product(ctx: &Ctx, args: ProductArgs) -> Result<()> {
         }
         Some(ProductCommand::Cards {
             section,
+            query,
+            sort,
+            dir,
             page,
             page_size,
         }) => {
             let mut q: Vec<(&str, String)> = Vec::new();
             push_opt(&mut q, "section", &section);
+            push_opt(&mut q, "q", &query);
+            push_opt(&mut q, "sort", &sort);
+            push_opt(&mut q, "dir", &dir);
             push_opt(&mut q, "page", &page);
             push_opt(&mut q, "page_size", &page_size);
             let page: Page<ProductCardEntry> =
@@ -781,10 +864,12 @@ pub async fn product(ctx: &Ctx, args: ProductArgs) -> Result<()> {
                 page_footer(ctx, page.page, page.total, page.has_more, "cards");
             }
         }
-        Some(ProductCommand::Sections) => {
+        Some(ProductCommand::Sections { query }) => {
+            let mut q: Vec<(&str, String)> = Vec::new();
+            push_opt(&mut q, "q", &query);
             let body: DataBody<Vec<ProductCardSection>> = ctx
                 .client
-                .get_json(&format!("{base}/cards/sections"), &[])
+                .get_json(&format!("{base}/cards/sections"), &q)
                 .await?;
             if ctx.printer.json {
                 ctx.printer.json(&body.data)?;

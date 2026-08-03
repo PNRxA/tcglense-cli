@@ -67,7 +67,12 @@ pub enum CollectionCommand {
         related: bool,
     },
     /// Per-set owned aggregates.
-    Sets,
+    Sets {
+        /// Per-unit bulk price cutoff in USD cents (default $1) — splits each set
+        /// tile's bulk subtotal out of its value.
+        #[arg(long, value_name = "CENTS")]
+        bulk_max: Option<i64>,
+    },
     /// Owned cards in a drop-grouped set, grouped by drop.
     Drops {
         code: String,
@@ -289,9 +294,9 @@ pub async fn run(ctx: &Ctx, args: CollectionArgs) -> Result<()> {
         }
         CollectionCommand::Remove { card_id } => holdings::set(ctx, &s, &card_id, 0, 0).await,
         CollectionCommand::Summary { set, related } => {
-            holdings::summary(ctx, &s, set, related).await
+            holdings::summary(ctx, &s, set, related, None).await
         }
-        CollectionCommand::Sets => holdings::sets(ctx, &s).await,
+        CollectionCommand::Sets { bulk_max } => holdings::sets(ctx, &s, bulk_max).await,
         CollectionCommand::Drops {
             code,
             query,

@@ -369,7 +369,15 @@ fn deck_detail_text(d: &DeckDetail) -> Text<'static> {
         }
         lines.push(Line::raw(""));
         lines.push(Line::styled(
-            format!("== {} ==", section.name),
+            format!(
+                "== {} =={}",
+                section.name,
+                if section.is_maybeboard {
+                    "  [maybeboard]"
+                } else {
+                    ""
+                }
+            ),
             Style::default().fg(HL).add_modifier(Modifier::BOLD),
         ));
         for c in cards {

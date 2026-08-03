@@ -44,7 +44,19 @@ workflow builds and attaches per-platform binaries).
 
 The CLI aims to cover the whole documented API surface. The API publishes a versioned
 OpenAPI document at `/api/openapi.json`; `scripts/api-endpoints.txt` is the committed
-baseline of the operations the CLI covers (as of the last update).
+baseline of what the CLI covers (as of the last update) — one line per operation, per
+query parameter and per JSON request-body field:
+
+```
+GET /api/games/{game}/cards           the operation
+GET /api/games/{game}/cards ?sort     a query parameter
+POST /api/decks/{game} +folder_id     a request-body field
+```
+
+The parameter lines matter: an endpoint that grows a filter or a body field is a gap
+just as surely as a whole new route, and a route-only baseline can't see it (that is
+how the life tracker's counters and the deck maybeboard were missed while the route
+list matched exactly).
 
 **Run the drift check to see whether the API has grown past the CLI:**
 
@@ -54,13 +66,24 @@ scripts/check-api-drift.sh http://localhost:5173   # check against a local/self-
 scripts/check-api-drift.sh --update        # rewrite the baseline to match live
 ```
 
-It fetches the live spec, diffs its `METHOD /path` operation set against the baseline,
-and lists any operations the API has that the CLI baseline lacks (a likely **missing
-command**) or that the baseline has but the API dropped. It exits non-zero on drift, so
-it can gate CI or run on a schedule. Requires `curl` + `jq`.
+It fetches the live spec, flattens it to the line shapes above, diffs that against the
+baseline, and lists anything the API has that the baseline lacks (a likely **missing
+command or flag**) or that the baseline has but the API dropped. It exits non-zero on
+drift, so it can gate CI or run on a schedule. Requires `curl` + `jq`.
+
+Note the spec labels some genuine query parameters `in: path` (the goldfish/stats
+options), so the script treats a parameter as a query parameter when the path template
+has no `{placeholder}` for it, rather than trusting the label.
 
 When it flags a new endpoint: add the command (an arg struct + handler in the right
 `src/commands/*.rs`, a `Command` variant in `src/cli.rs`, a dispatch arm in
 `src/commands/mod.rs`, a wire type in `src/models.rs` if needed, and a README example),
 then re-run with `--update` to refresh the baseline. A good template is any small
 read command — e.g. `catalog::rulings` (`GET /api/games/{game}/cards/{id}/rulings`).
+When it flags a bare `?param` / `+field` on an operation that already has a command,
+the fix is usually a new flag threaded into that handler's existing query/body build.
+
+An endpoint that exists twice — once under `/api/decks/{game}/{deck_id}`, once under
+`/api/u/{handle}/decks/{deck_id}` — gets one handler taking the deck's base path, which
+`public.rs` reuses (see `decks::{legality,stats,goldfish}`), the same way the holdings
+engine is parameterised by `Surface`.

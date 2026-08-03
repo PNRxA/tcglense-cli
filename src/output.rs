@@ -173,6 +173,37 @@ pub fn card_detail(c: &Card) {
     if let Some(drop) = &c.drop_name {
         println!("  Secret Lair drop: {drop}");
     }
+    print_legalities(c);
+}
+
+/// Render a card's per-format legality. `not_legal` (a format the card was simply
+/// never printed into) is the bulk of the map and says nothing, so it's dropped —
+/// what's worth a line is where the card *is* playable, and where it's been hit.
+fn print_legalities(c: &Card) {
+    let Some(legalities) = &c.legalities else {
+        return;
+    };
+    let mut by_status: std::collections::BTreeMap<&str, Vec<&str>> =
+        std::collections::BTreeMap::new();
+    for (format, status) in legalities {
+        if status == "not_legal" {
+            continue;
+        }
+        by_status.entry(status).or_default().push(format);
+    }
+    for (label, status) in [
+        ("Legal in    ", "legal"),
+        ("Restricted  ", "restricted"),
+        ("Banned in   ", "banned"),
+    ] {
+        if let Some(formats) = by_status.remove(status) {
+            println!("  {label}: {}", formats.join(", "));
+        }
+    }
+    // Anything the API grows beyond the three known statuses still gets shown.
+    for (status, formats) in by_status {
+        println!("  {status}: {}", formats.join(", "));
+    }
 }
 
 fn indent(text: &str) -> String {

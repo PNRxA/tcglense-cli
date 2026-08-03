@@ -1,21 +1,52 @@
 //! Tools: the life tracker (`/api/tools/{game}/life/…`).
 //!
-//! A *session* is one tracked game — a header (name, format, layout, starting life)
-//! plus its seats, and a full history of every life change.
+//! A *session* is one tracked game — a header (name, format, layout, starting life,
+//! which counters it tracks) plus its seats, and a full history of every change.
+//!
+//! Life is always tracked; a game may also track `commander_damage`, `poison`,
+//! `energy` and `experience`. Those counters are never stored — the API folds them
+//! out of the history, so there is exactly one writer for every number in a game,
+//! and [`LifeSessionDetail::counters`] is where the table's derived state arrives.
 //!
 //! Most writes echo the whole [`LifeSessionDetail`] back, because one change can
 //! re-derive many rows (an undo re-folds a seat's chain; removing a seat renumbers
 //! the rest). Three do not, and the response type has to match or the write lands
 //! but the CLI reports a decode failure: editing the session returns the bare
-//! [`LifeSession`], editing a seat returns the bare [`LifePlayer`], and a life
-//! change returns a [`LifeChange`] — just the seat it moved and the event recorded.
+//! [`LifeSession`], editing a seat returns the bare [`LifePlayer`], and a change
+//! returns a [`LifeChange`] — the seat it moved, the counter it left, and the event.
 
 use anyhow::{Result, bail};
-use clap::{Args, Subcommand};
+use clap::{Args, Subcommand, ValueEnum};
 
 use super::{Ctx, push_opt};
 use crate::models::*;
 use crate::output::{self, table};
+
+/// A counter a game can track beyond life. `life` is always tracked and is never
+/// one of these — it's what a life change moves when no counter is named.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum Counter {
+    /// Damage from one seat's commander to another; every change names its source.
+    #[value(name = "commander_damage", alias = "commander-damage", alias = "cmd")]
+    CommanderDamage,
+    #[value(name = "poison")]
+    Poison,
+    #[value(name = "energy")]
+    Energy,
+    #[value(name = "experience", alias = "exp")]
+    Experience,
+}
+
+impl Counter {
+    fn as_str(self) -> &'static str {
+        match self {
+            Counter::CommanderDamage => "commander_damage",
+            Counter::Poison => "poison",
+            Counter::Energy => "energy",
+            Counter::Experience => "experience",
+        }
+    }
+}
 
 #[derive(Debug, Args)]
 pub struct LifeArgs {
@@ -56,9 +87,15 @@ pub enum LifeCommand {
         /// Format the table is playing (e.g. `commander`).
         #[arg(long)]
         format: Option<String>,
-        /// Seat layout: rows | facing | grid | pinwheel (default: fits the player count).
+        /// Seat layout: rows | facing | facing-solo | sides | sides-solo | grid |
+        /// pinwheel (default: fits the player count).
         #[arg(long)]
         layout: Option<String>,
+        /// A counter to track beyond life, repeatable. Omit to take the rematched
+        /// game's counters, else the format's default (a Commander pod opens with
+        /// the damage matrix on).
+        #[arg(long = "counter", value_enum, value_name = "COUNTER")]
+        counters: Vec<Counter>,
         /// The total each seat starts on.
         #[arg(long)]
         starting_life: Option<i64>,
@@ -71,9 +108,17 @@ pub enum LifeCommand {
         name: Option<String>,
         #[arg(long)]
         format: Option<String>,
-        /// Seat layout: rows | facing | grid | pinwheel.
+        /// Seat layout: rows | facing | facing-solo | sides | sides-solo | grid |
+        /// pinwheel.
         #[arg(long)]
         layout: Option<String>,
+        /// Replace the tracked-counter set, repeatable. Values already recorded
+        /// against a counter you drop are kept, not deleted.
+        #[arg(long = "counter", value_enum, value_name = "COUNTER")]
+        counters: Vec<Counter>,
+        /// Stop tracking every counter but life.
+        #[arg(long, conflicts_with = "counters")]
+        no_counters: bool,
     },
     /// Delete a tracked game, its seats and its whole life history.
     Delete { session_id: i64 },
@@ -129,18 +174,26 @@ pub enum LifeCommand {
         #[arg(required = true, value_name = "PLAYER_ID")]
         player_ids: Vec<i64>,
     },
-    /// Move a seat's life total and record it in the history.
+    /// Move one of a seat's numbers and record it in the history.
     Adjust {
         session_id: i64,
         player_id: i64,
         /// A relative change, e.g. `-3`.
         #[arg(long, allow_negative_numbers = true, conflicts_with = "life")]
         delta: Option<i64>,
-        /// An absolute correction — the total the seat is actually on.
+        /// An absolute correction — the value the counter is actually on.
         #[arg(long, allow_negative_numbers = true)]
         life: Option<i64>,
+        /// Which counter to move; omit for the seat's life total. The game has to
+        /// be tracking it (see `life start --counter`).
+        #[arg(long, value_enum, value_name = "COUNTER")]
+        counter: Option<Counter>,
+        /// For `commander_damage`, the seat whose commander dealt it (required
+        /// there, refused for every other counter).
+        #[arg(long = "from", value_name = "PLAYER_ID")]
+        source: Option<i64>,
     },
-    /// Undo one recorded life change, from anywhere in the history.
+    /// Undo one recorded change, from anywhere in the history.
     Undo { session_id: i64, event_id: i64 },
     /// Per-deck win/loss record across your finished tracked games.
     Records {
@@ -183,6 +236,7 @@ pub async fn life(ctx: &Ctx, args: LifeArgs) -> Result<()> {
             name,
             format,
             layout,
+            counters,
             starting_life,
         } => {
             if players.is_empty() && from.is_none() {
@@ -200,6 +254,7 @@ pub async fn life(ctx: &Ctx, args: LifeArgs) -> Result<()> {
                 "name": name,
                 "format": format,
                 "layout": layout,
+                "counters": counter_list(&counters),
                 "starting_life": starting_life,
             });
             let detail: LifeSessionDetail = ctx
@@ -216,14 +271,26 @@ pub async fn life(ctx: &Ctx, args: LifeArgs) -> Result<()> {
             name,
             format,
             layout,
+            counters,
+            no_counters,
         } => {
-            if name.is_none() && format.is_none() && layout.is_none() {
-                bail!("provide at least one of --name / --format / --layout");
+            // An empty `--counter` list means "leave the set alone"; turning them
+            // all off is the explicit `--no-counters`.
+            let counters = if no_counters {
+                Some(Vec::new())
+            } else {
+                counter_list(&counters)
+            };
+            if name.is_none() && format.is_none() && layout.is_none() && counters.is_none() {
+                bail!(
+                    "provide at least one of --name / --format / --layout / --counter / --no-counters"
+                );
             }
             let body = serde_json::json!({
                 "name": name,
                 "format": format,
                 "layout": layout,
+                "counters": counters,
             });
             // Editing the session echoes the bare session, not the detail envelope.
             let session: LifeSession = ctx
@@ -341,12 +408,33 @@ pub async fn life(ctx: &Ctx, args: LifeArgs) -> Result<()> {
             player_id,
             delta,
             life,
+            counter,
+            source,
         } => {
             if delta.is_none() == life.is_none() {
                 bail!("pass exactly one of --delta <change> or --life <total>");
             }
-            let body = serde_json::json!({ "delta": delta, "life": life });
-            // A life change echoes only the seat it moved plus the event recorded.
+            // 21 damage is per commander, so a sourceless damage row couldn't
+            // decide anything; every other counter refuses a source outright.
+            match (counter, source) {
+                (Some(Counter::CommanderDamage), None) => {
+                    bail!(
+                        "commander_damage needs --from <player-id> — the seat whose commander dealt it"
+                    );
+                }
+                (c, Some(_)) if c != Some(Counter::CommanderDamage) => {
+                    bail!("--from only applies to --counter commander_damage");
+                }
+                _ => {}
+            }
+            let body = serde_json::json!({
+                "delta": delta,
+                "life": life,
+                "counter": counter.map(Counter::as_str),
+                "source_player_id": source,
+            });
+            // A change echoes only the seat it moved, the counter it left, and the
+            // event recorded.
             let change: LifeChange = ctx
                 .client
                 .post_json(
@@ -359,9 +447,10 @@ pub async fn life(ctx: &Ctx, args: LifeArgs) -> Result<()> {
             } else {
                 let e = &change.event;
                 println!(
-                    "{} (seat {}): {} → {}   ({:+} · {} · event {})",
+                    "{} (seat {}) {}: {} → {}   ({:+} · {} · event {})",
                     change.player.name,
                     change.player.id,
+                    counter_label(e),
                     e.life_after - e.delta,
                     e.life_after,
                     e.delta,
@@ -401,6 +490,21 @@ pub async fn life(ctx: &Ctx, args: LifeArgs) -> Result<()> {
 }
 
 // -- request helpers --------------------------------------------------------
+
+/// Turn a repeated `--counter` into the wire list, de-duplicated in the order
+/// given. No flags at all is `None` — "leave the tracked set to the server".
+fn counter_list(counters: &[Counter]) -> Option<Vec<&'static str>> {
+    if counters.is_empty() {
+        return None;
+    }
+    let mut out: Vec<&'static str> = Vec::new();
+    for c in counters {
+        if !out.contains(&c.as_str()) {
+            out.push(c.as_str());
+        }
+    }
+    Some(out)
+}
 
 /// Parse a `--player` spec: a name, optionally followed by comma-separated
 /// `key=value` attributes (`deck`, `commander`, `rotation`, `life`). A bare
@@ -465,9 +569,12 @@ fn report(ctx: &Ctx, detail: &LifeSessionDetail, with_history: bool) -> Result<(
         return ctx.printer.json(detail);
     }
     print_session(&detail.session);
+    if !detail.counters.is_empty() {
+        counters_table(&detail.session.players, &detail.counters);
+    }
     if with_history {
         if detail.events.is_empty() {
-            println!("(no life changes recorded yet)");
+            println!("(no changes recorded yet)");
         } else {
             events_table(&detail.session.players, &detail.events);
         }
@@ -500,7 +607,46 @@ fn print_session(s: &LifeSession) {
             None => String::new(),
         }
     );
+    if !s.counters.is_empty() {
+        println!("  tracking: life, {}", s.counters.join(", "));
+    }
     players_table(&s.players);
+}
+
+/// Where every non-life counter stands, folded out of the history by the API. A
+/// commander-damage row is per source seat, so it names who dealt it.
+fn counters_table(players: &[LifePlayer], counters: &[LifeCounter]) {
+    let mut t = table(&["Seat", "Counter", "From", "Value"]);
+    for c in counters {
+        t.add_row(vec![
+            seat_name(players, c.player_id),
+            c.counter.clone(),
+            match c.source_player_id {
+                Some(id) => seat_name(players, id),
+                None => "—".to_string(),
+            },
+            c.value.to_string(),
+        ]);
+    }
+    println!("{t}");
+}
+
+/// A seat's name, or its bare id once it has left the table (the history outlives
+/// the seat).
+fn seat_name(players: &[LifePlayer], player_id: i64) -> String {
+    players
+        .iter()
+        .find(|p| p.id == player_id)
+        .map(|p| output::truncate(&p.name, 20))
+        .unwrap_or_else(|| format!("#{player_id}"))
+}
+
+/// What an event moved, naming the source seat for commander damage.
+fn counter_label(e: &LifeEvent) -> String {
+    match e.source_player_id {
+        Some(id) => format!("{} from #{id}", e.counter),
+        None => e.counter.clone(),
+    }
 }
 
 fn sessions_table(sessions: &[LifeSession]) {
@@ -552,16 +698,18 @@ fn playing(p: &LifePlayer) -> String {
 }
 
 fn events_table(players: &[LifePlayer], events: &[LifeEvent]) {
-    let mut t = table(&["ID", "Seat", "Kind", "Delta", "After", "When"]);
+    let mut t = table(&[
+        "ID", "Seat", "Counter", "From", "Kind", "Delta", "After", "When",
+    ]);
     for e in events {
-        let who = players
-            .iter()
-            .find(|p| p.id == e.player_id)
-            .map(|p| output::truncate(&p.name, 20))
-            .unwrap_or_else(|| format!("#{}", e.player_id));
         t.add_row(vec![
             e.id.to_string(),
-            who,
+            seat_name(players, e.player_id),
+            e.counter.clone(),
+            match e.source_player_id {
+                Some(id) => seat_name(players, id),
+                None => "—".to_string(),
+            },
             e.kind.clone(),
             format!("{:+}", e.delta),
             e.life_after.to_string(),
@@ -635,6 +783,23 @@ mod tests {
     #[test]
     fn deck_and_commander_are_mutually_exclusive() {
         assert!(parse_player_spec("Alice,deck=1,commander=abc").is_err());
+    }
+
+    #[test]
+    fn no_counter_flags_leave_the_tracked_set_alone() {
+        assert!(counter_list(&[]).is_none());
+    }
+
+    #[test]
+    fn counters_keep_their_order_and_de_duplicate() {
+        let out = counter_list(&[
+            Counter::Poison,
+            Counter::CommanderDamage,
+            Counter::Poison,
+            Counter::Experience,
+        ])
+        .unwrap();
+        assert_eq!(out, vec!["poison", "commander_damage", "experience"]);
     }
 
     #[test]

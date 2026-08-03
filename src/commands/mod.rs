@@ -109,6 +109,7 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
         Command::Image(a) => catalog::image(&ctx, a).await,
 
         Command::Keywords(a) => catalog::keywords(&ctx, a).await,
+        Command::Formats(a) => catalog::formats(&ctx, a).await,
         Command::ArtTags(a) => catalog::art_tags(&ctx, a).await,
         Command::Export(a) => catalog::export(&ctx, a).await,
 

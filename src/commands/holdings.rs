@@ -135,10 +135,20 @@ pub async fn add(ctx: &Ctx, s: &Surface, card_id: &str, qty: i64, foil: i64) -> 
     .await
 }
 
-pub async fn summary(ctx: &Ctx, s: &Surface, set: Option<String>, related: bool) -> Result<()> {
+/// `bulk_max` is the per-unit price cutoff (USD cents) that splits the bulk
+/// subtotal out of the total; only the public summaries document it, so the
+/// collection/wish-list callers pass `None`.
+pub async fn summary(
+    ctx: &Ctx,
+    s: &Surface,
+    set: Option<String>,
+    related: bool,
+    bulk_max: Option<i64>,
+) -> Result<()> {
     let mut q: Vec<(&str, String)> = Vec::new();
     push_opt(&mut q, "set", &set);
     push_flag(&mut q, "include_related", related);
+    push_opt(&mut q, "bulk_max_cents", &bulk_max);
     let path = format!("{}/summary", s.base);
     let summary: CollectionSummary = ctx.client.get_json(&path, &q).await?;
     if ctx.printer.json {
@@ -149,13 +159,17 @@ pub async fn summary(ctx: &Ctx, s: &Surface, set: Option<String>, related: bool)
     Ok(())
 }
 
-pub async fn sets(ctx: &Ctx, s: &Surface) -> Result<()> {
+/// Per-set aggregate tiles. `bulk_max` is the per-unit price cutoff (USD cents,
+/// default $1) that splits each tile's bulk subtotal out of its value.
+pub async fn sets(ctx: &Ctx, s: &Surface, bulk_max: Option<i64>) -> Result<()> {
+    let mut q: Vec<(&str, String)> = Vec::new();
+    push_opt(&mut q, "bulk_max_cents", &bulk_max);
     let path = format!("{}/sets", s.base);
-    let body: DataBody<Vec<CollectionSet>> = ctx.client.get_json(&path, &[]).await?;
+    let body: DataBody<Vec<CollectionSet>> = ctx.client.get_json(&path, &q).await?;
     if ctx.printer.json {
         ctx.printer.json(&body.data)?;
     } else {
-        let mut t = table(&["Code", "Name", "Cards", "Copies", "Value"]);
+        let mut t = table(&["Code", "Name", "Cards", "Copies", "Value", "Bulk"]);
         for cs in &body.data {
             t.add_row(vec![
                 cs.code.to_uppercase(),
@@ -163,6 +177,7 @@ pub async fn sets(ctx: &Ctx, s: &Surface) -> Result<()> {
                 cs.owned_cards.to_string(),
                 cs.owned_copies.to_string(),
                 output::price(&cs.owned_value_usd),
+                output::price(&cs.owned_bulk_value_usd),
             ]);
         }
         println!("{t}");

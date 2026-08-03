@@ -7,6 +7,7 @@ use anyhow::Result;
 use clap::{Args, Subcommand};
 
 use super::Ctx;
+use super::decks;
 use super::holdings::{self, Surface};
 use crate::models::*;
 use crate::output::{decks_table, table};
@@ -49,6 +50,18 @@ pub enum PublicCommand {
 pub enum PublicDeckCommand {
     /// Copy this public deck into your own decks (auth required; starts private).
     Copy,
+    /// Check the deck against its own format.
+    Legality,
+    /// Composition (curve, colours, types) plus the draw odds for one card.
+    Stats {
+        #[command(flatten)]
+        args: decks::StatsArgs,
+    },
+    /// Shuffle the library and deal a sample opening hand.
+    Goldfish {
+        #[command(flatten)]
+        args: decks::GoldfishArgs,
+    },
 }
 
 /// The read-only holdings surface shared by the public collection and wish list
@@ -63,6 +76,12 @@ pub enum PublicHoldingsCommand {
         set: Option<String>,
         #[arg(long)]
         related: bool,
+        /// Sort key: updated | quantity | name | rarity | released | cmc | price.
+        #[arg(long)]
+        sort: Option<String>,
+        /// Direction: asc | desc.
+        #[arg(long)]
+        dir: Option<String>,
         #[arg(long)]
         page: Option<u32>,
         #[arg(long)]
@@ -74,9 +93,18 @@ pub enum PublicHoldingsCommand {
         set: Option<String>,
         #[arg(long)]
         related: bool,
+        /// Per-unit bulk price cutoff in USD cents (default $1) — the threshold the
+        /// bulk estimate splits on.
+        #[arg(long, value_name = "CENTS")]
+        bulk_max: Option<i64>,
     },
     /// Per-set aggregates.
-    Sets,
+    Sets {
+        /// Per-unit bulk price cutoff in USD cents (default $1) — splits each set
+        /// tile's bulk subtotal out of its value.
+        #[arg(long, value_name = "CENTS")]
+        bulk_max: Option<i64>,
+    },
     /// Held cards in a drop-grouped set, grouped by drop.
     Drops {
         code: String,
@@ -136,16 +164,13 @@ pub async fn run(ctx: &Ctx, args: PublicArgs) -> Result<()> {
                 ctx.printer.json(&p)?;
             } else {
                 println!("{} (member since {})", p.handle, p.member_since);
-                let mut t = table(&["Game", "Cards", "Copies", "Value"]);
-                for g in &p.games {
-                    t.add_row(vec![
-                        g.game.clone(),
-                        g.summary.unique_cards.to_string(),
-                        g.summary.total_cards.to_string(),
-                        crate::output::price(&g.summary.total_value_usd),
-                    ]);
+                // A game can be shared as a collection, as a wish list, or both —
+                // the two toggles are independent, so they get a table each.
+                print_shared_games("Public collections", &p.games);
+                print_shared_games("Public wish lists", &p.wishlists);
+                if p.games.is_empty() && p.wishlists.is_empty() {
+                    println!("Nothing shared publicly.");
                 }
-                println!("{t}");
             }
         }
         PublicCommand::Collection { game, command } => {
@@ -180,6 +205,15 @@ pub async fn run(ctx: &Ctx, args: PublicArgs) -> Result<()> {
             }
         }
         PublicCommand::Deck { deck_id, command } => match command {
+            Some(PublicDeckCommand::Legality) => {
+                decks::legality(ctx, &format!("/api/u/{handle}/decks/{deck_id}")).await?
+            }
+            Some(PublicDeckCommand::Stats { args }) => {
+                decks::stats(ctx, &format!("/api/u/{handle}/decks/{deck_id}"), args).await?
+            }
+            Some(PublicDeckCommand::Goldfish { args }) => {
+                decks::goldfish(ctx, &format!("/api/u/{handle}/decks/{deck_id}"), args).await?
+            }
             None => {
                 let d: DeckDetail = ctx
                     .client
@@ -228,6 +262,25 @@ pub async fn run(ctx: &Ctx, args: PublicArgs) -> Result<()> {
     Ok(())
 }
 
+/// Render one of a profile's shared-surface tables (collections or wish lists),
+/// skipping it entirely when nothing is shared there.
+fn print_shared_games(label: &str, games: &[PublicGameSummary]) {
+    if games.is_empty() {
+        return;
+    }
+    println!("\n{label}:");
+    let mut t = table(&["Game", "Cards", "Copies", "Value"]);
+    for g in games {
+        t.add_row(vec![
+            g.game.clone(),
+            g.summary.unique_cards.to_string(),
+            g.summary.total_cards.to_string(),
+            crate::output::price(&g.summary.total_value_usd),
+        ]);
+    }
+    println!("{t}");
+}
+
 /// Dispatch a read on a public holdings surface (collection or wish list).
 async fn run_holdings(ctx: &Ctx, s: &Surface, command: PublicHoldingsCommand) -> Result<()> {
     match command {
@@ -235,13 +288,17 @@ async fn run_holdings(ctx: &Ctx, s: &Surface, command: PublicHoldingsCommand) ->
             query,
             set,
             related,
+            sort,
+            dir,
             page,
             page_size,
-        } => holdings::list(ctx, s, query, set, related, None, None, page, page_size).await,
-        PublicHoldingsCommand::Summary { set, related } => {
-            holdings::summary(ctx, s, set, related).await
-        }
-        PublicHoldingsCommand::Sets => holdings::sets(ctx, s).await,
+        } => holdings::list(ctx, s, query, set, related, sort, dir, page, page_size).await,
+        PublicHoldingsCommand::Summary {
+            set,
+            related,
+            bulk_max,
+        } => holdings::summary(ctx, s, set, related, bulk_max).await,
+        PublicHoldingsCommand::Sets { bulk_max } => holdings::sets(ctx, s, bulk_max).await,
         PublicHoldingsCommand::Drops {
             code,
             query,
