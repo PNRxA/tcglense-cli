@@ -111,6 +111,8 @@ pub enum DecksCommand {
     },
     /// Check a deck against its own format: offending cards + construction breaches.
     Legality { deck_id: i64 },
+    /// Estimate where a Commander deck sits on the 1–5 bracket ladder.
+    Bracket { deck_id: i64 },
     /// Composition (curve, colours, types) plus the draw odds for one card.
     Stats {
         deck_id: i64,
@@ -448,6 +450,7 @@ pub async fn run(ctx: &Ctx, args: DecksArgs) -> Result<()> {
         DecksCommand::Card { deck_id, command } => deck_card(ctx, &base, deck_id, command).await?,
         DecksCommand::Needed { mode } => needed(ctx, &base, mode).await?,
         DecksCommand::Legality { deck_id } => legality(ctx, &format!("{base}/{deck_id}")).await?,
+        DecksCommand::Bracket { deck_id } => bracket(ctx, &format!("{base}/{deck_id}")).await?,
         DecksCommand::Stats { deck_id, args } => {
             stats(ctx, &format!("{base}/{deck_id}"), args).await?
         }
@@ -661,12 +664,13 @@ async fn needed(ctx: &Ctx, base: &str, mode: NeededMode) -> Result<()> {
     Ok(())
 }
 
-// -- legality / analytics / goldfish -----------------------------------------
+// -- legality / bracket / analytics / goldfish --------------------------------
 //
-// These three reads exist twice over — once for your own decks under
+// These four reads exist several times over — once for your own decks under
 // `/api/decks/{game}/{deck_id}`, once for a shared one under
-// `/api/u/{handle}/decks/{deck_id}` — and are identical bar the base path, so
-// each handler takes the deck's base URL and `public.rs` reuses it.
+// `/api/u/{handle}/decks/{deck_id}`, and once more over a published decklist under
+// `/api/games/{game}/precons/{slug}` — and are identical bar the base path, so each
+// handler takes the deck's base URL and `public.rs` / `precons.rs` reuse it.
 
 /// A deck's verdict against its own format. `data` is null when the format isn't
 /// one legality is tracked for — that means "nothing to evaluate", not "illegal".
@@ -715,6 +719,82 @@ pub async fn legality(ctx: &Ctx, deck_base: &str) -> Result<()> {
     }
     if l.legal && l.issues.is_empty() && l.violations.is_empty() {
         println!("  No issues.");
+    }
+    Ok(())
+}
+
+/// Where the deck sits on Wizards' 1–5 Commander bracket ladder, estimated from the
+/// cards it holds. `data` is null outside Commander — the one format the ladder is
+/// defined for — which is "no ladder to place it on", not "bracket 0".
+pub async fn bracket(ctx: &Ctx, deck_base: &str) -> Result<()> {
+    let body: DataBody<Option<DeckBracketEstimate>> = ctx
+        .client
+        .get_json(&format!("{deck_base}/bracket"), &[])
+        .await?;
+    if ctx.printer.json {
+        return ctx.printer.json(&body.data);
+    }
+    let Some(b) = body.data else {
+        println!("No bracket — the ladder is only defined for Commander decks.");
+        return Ok(());
+    };
+    println!("Bracket {} — {}  [{}]", b.bracket, b.label, b.format_label);
+    println!("  {}", b.description);
+    if b.exhibition_possible {
+        println!(
+            "  Also clears bracket 1's bar: no Game Changers, mass land denial or extra turns."
+        );
+    }
+    if !b.reasons.is_empty() {
+        println!("\nWhy:");
+        for r in &b.reasons {
+            println!("  · {r}");
+        }
+    }
+    // Every category comes back whether or not the deck holds any; the empty ones
+    // are the estimate's silence, already said in the reasons.
+    let held: Vec<&DeckBracketCategory> = b.categories.iter().filter(|c| c.count > 0).collect();
+    if held.is_empty() {
+        println!("\nNo Game Changers, mass land denial, extra turns or tutors found.");
+    } else {
+        println!();
+        let mut t = table(&["Category", "Cards", "Decisive", "Examples"]);
+        for c in held {
+            let names: Vec<String> = c
+                .cards
+                .iter()
+                .map(|c| {
+                    if c.quantity > 1 {
+                        format!("{}× {}", c.quantity, c.name)
+                    } else {
+                        c.name.clone()
+                    }
+                })
+                .collect();
+            t.add_row(vec![
+                c.label.clone(),
+                c.count.to_string(),
+                if c.decisive { "yes" } else { "" }.to_string(),
+                output::truncate(&names.join(", "), 52),
+            ]);
+        }
+        println!("{t}");
+    }
+    if !b.caveats.is_empty() {
+        println!("\nThe estimate is a floor — it couldn't see:");
+        for c in &b.caveats {
+            println!("  · {c}");
+        }
+    }
+    println!("\nLadder:");
+    for l in &b.ladder {
+        println!(
+            "  {} {}. {} — {}",
+            if l.bracket == b.bracket { "→" } else { " " },
+            l.bracket,
+            l.label,
+            l.description
+        );
     }
     Ok(())
 }

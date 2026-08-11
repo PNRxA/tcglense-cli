@@ -780,6 +780,67 @@ pub struct GoldfishHand {
     pub section_ids: Vec<i64>,
 }
 
+// Commander bracket ---------------------------------------------------------
+
+/// One rung of Wizards' 1–5 Commander bracket ladder.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeckBracketLevel {
+    /// 1–5.
+    pub bracket: i64,
+    /// The rung's name (`"Upgraded"`).
+    pub label: String,
+    pub description: String,
+}
+
+/// One card counted towards a bracket category.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeckBracketCard {
+    /// External card id of one printing (for links).
+    pub card_id: String,
+    pub name: String,
+    /// Copies of that name across the deck proper (regular + foil, every section).
+    pub quantity: i64,
+}
+
+/// What the deck holds in one bracket category.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeckBracketCategory {
+    /// `game_changer` | `mass_land_denial` | `extra_turn` | `tutor`.
+    pub signal: String,
+    pub label: String,
+    pub description: String,
+    /// Distinct card **names** — a card held in two arts counts once.
+    pub count: i64,
+    /// Whether this category is what put the estimate where it is.
+    pub decisive: bool,
+    /// The matched cards in the deck's own order, capped (`count` stays exact).
+    pub cards: Vec<DeckBracketCard>,
+}
+
+/// Where a deck sits on the Commander bracket ladder, estimated from its cards.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeckBracketEstimate {
+    /// Always `commander` — the estimate is null for every other format.
+    pub format_key: String,
+    pub format_label: String,
+    /// The lowest bracket the deck's cards don't rule out: 2, 3 or 4. Never 1 or 5,
+    /// both of which are claims about intent a decklist can't settle.
+    pub bracket: i64,
+    pub label: String,
+    pub description: String,
+    /// All five rungs, so a client can draw the ladder without its own copy of it.
+    pub ladder: Vec<DeckBracketLevel>,
+    /// Why the estimate landed where it did, most decisive first.
+    pub reasons: Vec<String>,
+    /// What the estimate could not see. Never empty — the floor is only meaningful
+    /// alongside the reasons it might be too low.
+    pub caveats: Vec<String>,
+    /// Every category, in a stable order, whether or not the deck holds any.
+    pub categories: Vec<DeckBracketCategory>,
+    /// Whether the deck also clears the extra bar bracket 1 sets.
+    pub exhibition_possible: bool,
+}
+
 /// One deck that wants a [`NeededCard`], in the game's cross-deck needed list.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NeededCardDeck {
@@ -798,6 +859,130 @@ pub struct NeededCard {
     /// Shortfall (`required - owned`, floored at zero).
     pub needed: i64,
     pub decks: Vec<NeededCardDeck>,
+}
+
+// ---------------------------------------------------------------------------
+// Preconstructed decks
+// ---------------------------------------------------------------------------
+
+/// Just enough of a precon's face card to label a row: the **external** card id,
+/// its name, and whether an image exists.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PreconFaceCard {
+    pub card_id: String,
+    pub name: String,
+    pub has_image: bool,
+}
+
+/// A published decklist's header: what it is, when it came out, how big it is, and
+/// the card that fronts it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PreconDeck {
+    /// URL identity, stable across syncs (`turtle-power-tmc`).
+    pub slug: String,
+    pub game: String,
+    pub name: String,
+    /// The set the deck ships with, lowercased (`tmc`).
+    pub set_code: String,
+    /// That set's display name, when the catalog holds it.
+    #[serde(default)]
+    pub set_name: Option<String>,
+    /// Upstream's category: "Commander Deck", "Secret Lair Drop", "Jumpstart", …
+    pub deck_type: String,
+    #[serde(default)]
+    pub released_at: Option<String>,
+    /// Copies in the deck proper (mainboard + command zone).
+    pub card_count: i64,
+    /// Copies in the sideboard, counted apart from `card_count`.
+    pub sideboard_count: i64,
+    /// `["W","U"]`, `[]` for colourless, and **null** when there's nothing to read
+    /// a colour off — the same three-way convention a deck's colour identity uses.
+    #[serde(default)]
+    pub color_identity: Option<Vec<String>>,
+    /// The deck's commander, else the first card upstream lists; null when that card
+    /// is no longer in the catalog.
+    #[serde(default)]
+    pub face_card: Option<PreconFaceCard>,
+}
+
+/// One bucket of precons — a set, or a deck type. Grouped pages paginate by
+/// *group*, so a group's decks are never split across a page boundary.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PreconGroup {
+    /// The set code (`tmc`) when grouping by set, a slugified deck type
+    /// (`commander-deck`) when grouping by type.
+    pub slug: String,
+    pub title: String,
+    /// The set code this group links to; null for a type group.
+    #[serde(default)]
+    pub set_code: Option<String>,
+    /// The set's release date when grouping by set; always null by type.
+    #[serde(default)]
+    pub released_at: Option<String>,
+    pub deck_count: i64,
+    pub decks: Vec<PreconDeck>,
+}
+
+/// A deck type that actually occurs, with how many decks carry it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PreconTypeRef {
+    #[serde(rename = "type")]
+    pub type_: String,
+    pub count: i64,
+}
+
+/// A set that has precons (code + resolved name + count), for the set filter.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PreconSetRef {
+    pub code: String,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub released_at: Option<String>,
+    pub count: i64,
+}
+
+/// The filter vocabulary for a game's precons: every type and set that has one,
+/// published rather than hard-coded (upstream adds categories over time).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PreconFacets {
+    /// Deck types, most decks first.
+    pub types: Vec<PreconTypeRef>,
+    /// Sets that have precons, newest release first.
+    pub sets: Vec<PreconSetRef>,
+    /// Total precon decks for the game, before any filter.
+    pub total: i64,
+}
+
+/// One card of a precon. A row is a **single** finish, unlike a deck card's
+/// regular+foil pair, because that is how a published decklist states it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PreconCardEntry {
+    pub card: Card,
+    /// `commander` | `main` | `side`.
+    pub board: String,
+    pub quantity: i64,
+    pub foil: bool,
+}
+
+/// The full single-precon view: the header, the value summary, every card in board
+/// order, and the sealed product that ships it (when the catalog holds one).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PreconDeckDetail {
+    #[serde(flatten)]
+    pub deck: PreconDeck,
+    /// The format the deck's *type* states (`Commander Deck` → `commander`), or null
+    /// when the type states none — exactly what a copy of it would be judged against.
+    #[serde(default)]
+    pub format: Option<String>,
+    /// Value / copy aggregates over the deck proper (command zone + mainboard).
+    pub summary: CollectionSummary,
+    /// The same aggregates over the sideboard alone; all-zero when there isn't one.
+    pub sideboard_summary: CollectionSummary,
+    pub cards: Vec<PreconCardEntry>,
+    /// The sealed product this deck ships in, when the catalog holds one.
+    #[serde(default)]
+    pub product: Option<Product>,
 }
 
 // ---------------------------------------------------------------------------

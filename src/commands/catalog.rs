@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use anyhow::{Result, bail};
 use clap::{Args, Subcommand};
 
-use super::{CardExportFormat, Ctx, push_flag, push_opt};
+use super::{CardExportFormat, Ctx, page_footer, push_flag, push_opt};
 use crate::models::*;
 use crate::output::{
     self, card_detail, cards_table, games_table, prices_table, products_table, sets_table, table,
@@ -958,17 +958,6 @@ fn print_card_page(ctx: &Ctx, page: Page<Card>) {
         cards_table(&page.data);
         page_footer(ctx, page.page, page.total, page.has_more, "cards");
     }
-}
-
-fn page_footer(ctx: &Ctx, page: i64, total: i64, has_more: bool, noun: &str) {
-    ctx.printer.note(format!(
-        "page {page} · {total} {noun} total{}",
-        if has_more {
-            " · more available (--page)"
-        } else {
-            ""
-        }
-    ));
 }
 
 fn product_detail(p: &Product) {
