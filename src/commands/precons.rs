@@ -201,10 +201,15 @@ fn precons_table(decks: &[PreconDeck]) {
     let mut t = table(&["Slug", "Name", "Set", "Type", "Colours", "Cards", "Side"]);
     for d in decks {
         t.add_row(vec![
-            output::truncate(&d.slug, 28),
-            output::truncate(&d.name, 32),
+            // The slug is printed whole: it's the handle every other `precons`
+            // subcommand takes, and a clipped one is a 404 waiting to be pasted.
+            // Catalog slugs run past 60 characters ("Collector's Edition" decks,
+            // bundle land packs), so the room comes out of the columns that only
+            // have to be recognised — the table arranges itself dynamically.
+            d.slug.clone(),
+            output::truncate(&d.name, 28),
             d.set_code.to_uppercase(),
-            output::truncate(&d.deck_type, 18),
+            output::truncate(&d.deck_type, 16),
             colours(&d.color_identity),
             d.card_count.to_string(),
             d.sideboard_count.to_string(),
