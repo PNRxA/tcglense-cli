@@ -57,6 +57,7 @@ GET /api/decks/{game}/folders
 GET /api/decks/{game}/needed
 GET /api/decks/{game}/needed ?mode
 GET /api/decks/{game}/{deck_id}
+GET /api/decks/{game}/{deck_id}/bracket
 GET /api/decks/{game}/{deck_id}/export
 GET /api/decks/{game}/{deck_id}/export ?format
 GET /api/decks/{game}/{deck_id}/goldfish
@@ -100,6 +101,38 @@ GET /api/games/{game}/cards/{id}/rulings
 GET /api/games/{game}/cards/{id}/sealed
 GET /api/games/{game}/formats
 GET /api/games/{game}/keywords
+GET /api/games/{game}/precons
+GET /api/games/{game}/precons ?include_related
+GET /api/games/{game}/precons ?page
+GET /api/games/{game}/precons ?page_size
+GET /api/games/{game}/precons ?q
+GET /api/games/{game}/precons ?set
+GET /api/games/{game}/precons ?sort
+GET /api/games/{game}/precons ?type
+GET /api/games/{game}/precons/facets
+GET /api/games/{game}/precons/groups
+GET /api/games/{game}/precons/groups ?group
+GET /api/games/{game}/precons/groups ?include_related
+GET /api/games/{game}/precons/groups ?page
+GET /api/games/{game}/precons/groups ?page_size
+GET /api/games/{game}/precons/groups ?q
+GET /api/games/{game}/precons/groups ?set
+GET /api/games/{game}/precons/groups ?sort
+GET /api/games/{game}/precons/groups ?type
+GET /api/games/{game}/precons/{slug}
+GET /api/games/{game}/precons/{slug}/bracket
+GET /api/games/{game}/precons/{slug}/goldfish
+GET /api/games/{game}/precons/{slug}/goldfish ?bottom
+GET /api/games/{game}/precons/{slug}/goldfish ?draws
+GET /api/games/{game}/precons/{slug}/goldfish ?mulligans
+GET /api/games/{game}/precons/{slug}/goldfish ?opening
+GET /api/games/{game}/precons/{slug}/goldfish ?sections
+GET /api/games/{game}/precons/{slug}/goldfish ?seed
+GET /api/games/{game}/precons/{slug}/legality
+GET /api/games/{game}/precons/{slug}/stats
+GET /api/games/{game}/precons/{slug}/stats ?card
+GET /api/games/{game}/precons/{slug}/stats ?cards_seen
+GET /api/games/{game}/precons/{slug}/stats ?sections
 GET /api/games/{game}/products
 GET /api/games/{game}/products ?dir
 GET /api/games/{game}/products ?page
@@ -157,6 +190,7 @@ GET /api/tools/{game}/life/sessions/{session_id}
 GET /api/u/{handle}
 GET /api/u/{handle}/decks
 GET /api/u/{handle}/decks/{deck_id}
+GET /api/u/{handle}/decks/{deck_id}/bracket
 GET /api/u/{handle}/decks/{deck_id}/goldfish
 GET /api/u/{handle}/decks/{deck_id}/goldfish ?bottom
 GET /api/u/{handle}/decks/{deck_id}/goldfish ?draws
@@ -293,6 +327,7 @@ POST /api/decks/{game}/import +format
 POST /api/decks/{game}/import +name
 POST /api/decks/{game}/import +provider
 POST /api/decks/{game}/import +source
+POST /api/decks/{game}/precons/{slug}/copy
 POST /api/decks/{game}/{deck_id}/sections
 POST /api/decks/{game}/{deck_id}/sections +is_maybeboard
 POST /api/decks/{game}/{deck_id}/sections +name

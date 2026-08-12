@@ -52,6 +52,8 @@ pub enum PublicDeckCommand {
     Copy,
     /// Check the deck against its own format.
     Legality,
+    /// Estimate where a Commander deck sits on the 1–5 bracket ladder.
+    Bracket,
     /// Composition (curve, colours, types) plus the draw odds for one card.
     Stats {
         #[command(flatten)]
@@ -207,6 +209,9 @@ pub async fn run(ctx: &Ctx, args: PublicArgs) -> Result<()> {
         PublicCommand::Deck { deck_id, command } => match command {
             Some(PublicDeckCommand::Legality) => {
                 decks::legality(ctx, &format!("/api/u/{handle}/decks/{deck_id}")).await?
+            }
+            Some(PublicDeckCommand::Bracket) => {
+                decks::bracket(ctx, &format!("/api/u/{handle}/decks/{deck_id}")).await?
             }
             Some(PublicDeckCommand::Stats { args }) => {
                 decks::stats(ctx, &format!("/api/u/{handle}/decks/{deck_id}"), args).await?

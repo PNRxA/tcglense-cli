@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
-use crate::commands::{auth, catalog, collection, decks, misc, public, tools, wishlist};
+use crate::commands::{auth, catalog, collection, decks, misc, precons, public, tools, wishlist};
 
 /// Command-line client for TCGLense — browse the card catalog, manage your
 /// collection, wish list and decks, and mint API keys, via one-shot commands or an
@@ -97,6 +97,9 @@ pub enum Command {
     Products(catalog::ProductsArgs),
     /// Inspect one sealed product (detail / prices / contents / containers / cards).
     Product(catalog::ProductArgs),
+    /// Browse the preconstructed decks that ship with a game's sets (and copy one).
+    #[command(alias = "precon")]
+    Precons(precons::PreconsArgs),
     /// Show a game's card-data import status.
     Ingest(catalog::IngestArgs),
     /// Download a card or product image to a file.

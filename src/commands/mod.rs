@@ -6,6 +6,7 @@ pub mod collection;
 pub mod decks;
 pub mod holdings;
 pub mod misc;
+pub mod precons;
 pub mod public;
 pub mod tools;
 pub mod wishlist;
@@ -108,6 +109,8 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
         Command::Ingest(a) => catalog::ingest(&ctx, a).await,
         Command::Image(a) => catalog::image(&ctx, a).await,
 
+        Command::Precons(a) => precons::run(&ctx, a).await,
+
         Command::Keywords(a) => catalog::keywords(&ctx, a).await,
         Command::Formats(a) => catalog::formats(&ctx, a).await,
         Command::ArtTags(a) => catalog::art_tags(&ctx, a).await,
@@ -148,6 +151,19 @@ pub fn push_flag(q: &mut Vec<(&'static str, String)>, key: &'static str, val: bo
     if val {
         q.push((key, "true".to_string()));
     }
+}
+
+/// The one-line cursor summary printed under a paginated table (suppressed in JSON
+/// mode, where the page envelope carries the same numbers).
+pub fn page_footer(ctx: &Ctx, page: i64, total: i64, has_more: bool, noun: &str) {
+    ctx.printer.note(format!(
+        "page {page} · {total} {noun} total{}",
+        if has_more {
+            " · more available (--page)"
+        } else {
+            ""
+        }
+    ));
 }
 
 /// Shape of a card-search `.txt` export — shared by the catalog, collection and

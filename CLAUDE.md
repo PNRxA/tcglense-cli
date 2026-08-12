@@ -14,8 +14,9 @@ public TCGLense HTTP JSON API (default origin `https://tcglense.com`).
   live next to its handler in `src/commands/<domain>.rs`.
 - `src/commands/mod.rs` — `dispatch()` maps each `Command` to its handler.
 - `src/commands/` — `catalog` (games/sets/cards/products/scan/images/keywords/art-tags/
-  exports), `collection`, `wishlist`, `decks`, `tools` (the life tracker), `public`,
-  `auth`, `misc` (health/config/openapi/update).
+  exports), `precons` (the published decklists that ship with a game's sets),
+  `collection`, `wishlist`, `decks`, `tools` (the life tracker), `public`, `auth`,
+  `misc` (health/config/openapi/update).
 - `src/commands/holdings.rs` — a **shared engine** for the collection + wish-list
   surfaces, parameterised by a `Surface { base, batch_route, product_batch_route }`.
   Its paths are built by string concatenation off `base` (e.g. `{base}/cards/{id}`,
@@ -83,7 +84,8 @@ read command — e.g. `catalog::rulings` (`GET /api/games/{game}/cards/{id}/ruli
 When it flags a bare `?param` / `+field` on an operation that already has a command,
 the fix is usually a new flag threaded into that handler's existing query/body build.
 
-An endpoint that exists twice — once under `/api/decks/{game}/{deck_id}`, once under
-`/api/u/{handle}/decks/{deck_id}` — gets one handler taking the deck's base path, which
-`public.rs` reuses (see `decks::{legality,stats,goldfish}`), the same way the holdings
-engine is parameterised by `Surface`.
+An endpoint that exists more than once — under `/api/decks/{game}/{deck_id}`, under
+`/api/u/{handle}/decks/{deck_id}`, and again over a published decklist under
+`/api/games/{game}/precons/{slug}` — gets one handler taking the deck's base path, which
+`public.rs` and `precons.rs` reuse (see `decks::{legality,bracket,stats,goldfish}`), the
+same way the holdings engine is parameterised by `Surface`.

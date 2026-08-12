@@ -2,9 +2,9 @@
 
 A Rust command-line client **and** interactive TUI for the
 [TCGLense](https://github.com/PNRxA/tcglense) API. It covers the whole public API
-surface — the card catalog, sealed products, your collection, wish list and decks,
-API-key management, and public sharing — through both one-shot commands (for
-scripting/piping) and a keyboard-driven terminal UI (for browsing).
+surface — the card catalog, sealed products, preconstructed decks, your collection,
+wish list and decks, API-key management, and public sharing — through both one-shot
+commands (for scripting/piping) and a keyboard-driven terminal UI (for browsing).
 
 - **Stack:** Rust 2024 · [clap](https://docs.rs/clap) (commands) ·
   [reqwest](https://docs.rs/reqwest) + rustls/ring (HTTP) ·
@@ -139,6 +139,13 @@ tcglense sealed mtg <card-id>
 tcglense products mtg --set blb --sort price --dir desc
 tcglense product mtg <product-id> contents
 tcglense product mtg <product-id> cards -q 't:creature' --sort price --dir desc
+tcglense precons mtg list --type 'Commander Deck'     # decklists that ship with the sets
+tcglense precons mtg groups --group set --set tmc     # bucketed by set (or by --group type)
+tcglense precons mtg facets                           # the deck types + sets that have precons
+tcglense precons mtg show turtle-power-tmc            # header, value, every card, the product
+tcglense precons mtg bracket turtle-power-tmc         # estimated Commander bracket (1–5)
+tcglense precons mtg goldfish turtle-power-tmc --seed 42
+tcglense precons mtg copy turtle-power-tmc            # clone it into your decks (auth required)
 tcglense keywords mtg --full                         # the rules glossary
 tcglense formats mtg --popular                       # formats legality is tracked for
 tcglense art-tags mtg -q squirrel                    # tags the `art:` filter matches
@@ -173,6 +180,7 @@ tcglense decks mtg export <deck-id> --format moxfield-text
 tcglense decks mtg needed --mode card                # cards your decks want but you don't own
 tcglense decks mtg sections <deck-id> add "Considering" --maybeboard
 tcglense decks mtg legality <deck-id>                # verdict against the deck's own format
+tcglense decks mtg bracket <deck-id>                 # estimated Commander bracket, and why
 tcglense decks mtg stats <deck-id> --card 'Sol Ring' # curve, colours, types + draw odds
 tcglense decks mtg goldfish <deck-id> --mulligans 1 --bottom <card-id>   # sample opener
 
@@ -197,6 +205,7 @@ tcglense public alice-0001 wishlist mtg summary
 tcglense public alice-0001 collection mtg sets --bulk-max 200
 tcglense public alice-0001 decks
 tcglense public alice-0001 deck <deck-id> legality
+tcglense public alice-0001 deck <deck-id> bracket
 tcglense public alice-0001 deck <deck-id> stats
 tcglense public alice-0001 deck <deck-id> goldfish --seed 42
 tcglense public alice-0001 deck <deck-id> copy       # clone a public deck into your own
