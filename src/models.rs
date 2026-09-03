@@ -329,6 +329,11 @@ pub struct ProductCardSection {
     /// `--component` value that pages them; null for a plain section.
     #[serde(default)]
     pub component: Option<String>,
+    /// `true` when every card of a plain section arrived through a listed
+    /// sub-product, so the same pool is browsable on that product's own page;
+    /// always `false` for a component section.
+    #[serde(default)]
+    pub inherited: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -432,9 +437,17 @@ pub struct CollectionMover {
     pub card: Card,
     pub quantity: i64,
     pub foil_quantity: i64,
-    pub value_now: String,
-    pub value_prev: String,
+    /// Whether the prices are the **foil** finish's — a holding is represented by
+    /// the owned finish whose single-copy price moved the most over the window.
+    pub foil: bool,
+    /// That finish's current price for **one copy** (2-dp USD string) — never
+    /// multiplied by the quantities above.
+    pub price_now: String,
+    /// The same finish's single-copy price at the window baseline.
+    pub price_prev: String,
+    /// `price_now - price_prev`, signed 2-dp USD string.
     pub change_usd: String,
+    /// Percent change; null when `price_prev` is 0.
     pub change_pct: Option<f64>,
 }
 
@@ -449,9 +462,17 @@ pub struct CollectionSealedMover {
     pub product: Product,
     pub quantity: i64,
     pub foil_quantity: i64,
-    pub value_now: String,
-    pub value_prev: String,
+    /// Whether the prices are the **foil** finish's — a holding is represented by
+    /// the owned finish whose single-copy price moved the most over the window.
+    pub foil: bool,
+    /// That finish's current price for **one copy** (2-dp USD string) — never
+    /// multiplied by the quantities above.
+    pub price_now: String,
+    /// The same finish's single-copy price at the window baseline.
+    pub price_prev: String,
+    /// `price_now - price_prev`, signed 2-dp USD string.
     pub change_usd: String,
+    /// Percent change; null when `price_prev` is 0.
     pub change_pct: Option<f64>,
 }
 
@@ -551,6 +572,14 @@ pub struct ImportJob {
 // Decks
 // ---------------------------------------------------------------------------
 
+/// One card in a deck's command zone, as the deck list names it. The external
+/// card id travels so a client can link to the printing.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeckCommander {
+    pub card_id: String,
+    pub name: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Deck {
     pub id: i64,
@@ -561,6 +590,18 @@ pub struct Deck {
     pub folder_id: Option<i64>,
     pub is_public: bool,
     pub card_count: i64,
+    /// The card(s) in the command zone — one for most Commander decks, two for
+    /// partners or an Oathbreaker pair; empty for a deck without one.
+    #[serde(default)]
+    pub commanders: Vec<DeckCommander>,
+    /// WUBRG-ordered letters; `[]` is colourless and **null** means there was
+    /// nothing to read a colour off — the three-way convention `PreconDeck` uses.
+    #[serde(default)]
+    pub color_identity: Option<Vec<String>>,
+    /// Estimated USD value of everything outside a maybeboard (2-dp decimal
+    /// string); null when nothing in the deck is priced — never `"0.00"`.
+    #[serde(default)]
+    pub value_usd: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -857,12 +898,16 @@ pub struct NeededCard {
 
 // Card → decks, deck → tokens ------------------------------------------------
 
-/// The exact printing behind some of the copies a deck runs of a card.
+/// The exact printing behind some of the copies a deck holds of a card — deck
+/// proper and maybeboard alike.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CardDeckPrintingRef {
     pub id: String,
     pub set_code: String,
     pub collector_number: String,
+    /// Copies of this exact printing in the deck (regular + foil, **maybeboard
+    /// included**) — so the printings span both [`CardDeckRef::quantity`] and
+    /// [`CardDeckRef::maybeboard_quantity`], not `quantity` alone.
     pub quantity: i64,
 }
 
@@ -963,6 +1008,11 @@ pub struct PreconDeck {
     /// is no longer in the catalog.
     #[serde(default)]
     pub face_card: Option<PreconFaceCard>,
+    /// Estimated USD value of the deck proper (sideboard excluded, the same grain
+    /// as `card_count`), a 2-dp decimal string; null when none of its cards are
+    /// priced — never `"0.00"`.
+    #[serde(default)]
+    pub price_usd: Option<String>,
 }
 
 /// One bucket of precons — a set, or a deck type. Grouped pages paginate by

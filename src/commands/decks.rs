@@ -688,10 +688,19 @@ async fn containing(ctx: &Ctx, base: &str, card_id: &str) -> Result<()> {
         println!("None of your decks contain this card.");
         return Ok(());
     }
-    let mut t = table(&["ID", "Deck", "Format", "Qty", "Maybeboard", "Printings"]);
+    let mut t = table(&[
+        "ID",
+        "Deck",
+        "Commander",
+        "Format",
+        "Qty",
+        "Maybeboard",
+        "Printings (all boards)",
+    ]);
     for r in &body.data {
         // Which exact printings the copies are, so a deck running a *different*
-        // printing than the one asked about reads as such.
+        // printing than the one asked about reads as such. These counts span both
+        // boards, so they total `Qty` + `Maybeboard`, not `Qty` alone.
         let printings: Vec<String> = r
             .printings
             .iter()
@@ -706,7 +715,8 @@ async fn containing(ctx: &Ctx, base: &str, card_id: &str) -> Result<()> {
             .collect();
         t.add_row(vec![
             r.deck.id.to_string(),
-            output::truncate(&r.deck.name, 32),
+            output::truncate(&r.deck.name, 30),
+            output::truncate(&commanders(&r.deck), 24),
             output::dash(&r.deck.format),
             r.quantity.to_string(),
             r.maybeboard_quantity.to_string(),
@@ -716,6 +726,18 @@ async fn containing(ctx: &Ctx, base: &str, card_id: &str) -> Result<()> {
     println!("{t}");
     ctx.printer.note(format!("{} deck(s).", body.data.len()));
     Ok(())
+}
+
+/// A deck's command zone by name (`Thrasios & Tymna`), `—` when it has none.
+fn commanders(d: &Deck) -> String {
+    if d.commanders.is_empty() {
+        return "—".to_string();
+    }
+    d.commanders
+        .iter()
+        .map(|c| c.name.as_str())
+        .collect::<Vec<_>>()
+        .join(" & ")
 }
 
 // -- legality / bracket / analytics / goldfish / tokens -----------------------

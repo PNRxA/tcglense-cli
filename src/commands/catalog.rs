@@ -939,13 +939,20 @@ pub async fn product(ctx: &Ctx, args: ProductArgs) -> Result<()> {
             if ctx.printer.json {
                 ctx.printer.json(&body.data)?;
             } else {
-                let mut t = table(&["Section", "Cards", "Booster family", "Component"]);
+                let mut t = table(&[
+                    "Section",
+                    "Cards",
+                    "Booster family",
+                    "Component",
+                    "Inherited",
+                ]);
                 for s in &body.data {
                     t.add_row(vec![
                         s.key.clone(),
                         s.total.to_string(),
                         output::dash(&s.booster_family),
                         output::dash(&s.component),
+                        if s.inherited { "yes" } else { "" }.to_string(),
                     ]);
                 }
                 println!("{t}");

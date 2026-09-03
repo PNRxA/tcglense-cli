@@ -235,7 +235,9 @@ pub async fn run(ctx: &Ctx, args: PreconsArgs) -> Result<()> {
 // -- rendering ---------------------------------------------------------------
 
 pub(crate) fn precons_table(decks: &[PreconDeck]) {
-    let mut t = table(&["Slug", "Name", "Set", "Type", "Colours", "Cards", "Side"]);
+    let mut t = table(&[
+        "Slug", "Name", "Set", "Type", "Colours", "Cards", "Side", "USD",
+    ]);
     for d in decks {
         t.add_row(vec![
             // The slug is printed whole: it's the handle every other `precons`
@@ -250,6 +252,7 @@ pub(crate) fn precons_table(decks: &[PreconDeck]) {
             colours(&d.color_identity),
             d.card_count.to_string(),
             d.sideboard_count.to_string(),
+            output::price(&d.price_usd),
         ]);
     }
     println!("{t}");
@@ -258,7 +261,7 @@ pub(crate) fn precons_table(decks: &[PreconDeck]) {
 /// The precons a card appears in: the browse header plus how the card sits in
 /// each — copies, foil-only or not, and whether it leads from the command zone.
 fn card_precons_table(refs: &[CardPreconRef]) {
-    let mut t = table(&["Slug", "Name", "Set", "Type", "Qty", "Foil", "Leads"]);
+    let mut t = table(&["Slug", "Name", "Set", "Type", "Qty", "Foil", "Leads", "USD"]);
     for r in refs {
         let d = &r.precon;
         t.add_row(vec![
@@ -269,6 +272,7 @@ fn card_precons_table(refs: &[CardPreconRef]) {
             r.quantity.to_string(),
             if r.foil { "yes" } else { "" }.to_string(),
             if r.commander { "yes" } else { "" }.to_string(),
+            output::price(&d.price_usd),
         ]);
     }
     println!("{t}");

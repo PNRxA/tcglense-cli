@@ -211,7 +211,6 @@ pub enum Mode {
     Overwrite,
     Replace,
     Merge,
-    Smart,
 }
 
 impl Mode {
@@ -220,7 +219,6 @@ impl Mode {
             Mode::Overwrite => "overwrite",
             Mode::Replace => "replace",
             Mode::Merge => "merge",
-            Mode::Smart => "smart",
         }
     }
 }
@@ -368,6 +366,9 @@ async fn movers(ctx: &Ctx, s: &Surface, window: Option<String>) -> Result<()> {
     Ok(())
 }
 
+/// One window's gainers or losers. The prices are for **one copy** of the finish
+/// that moved most over the window — never quantity-weighted — so a row whose
+/// prices are the foil's says so.
 fn print_mover_rows(label: &str, movers: &[CollectionMover]) {
     if movers.is_empty() {
         return;
@@ -379,12 +380,13 @@ fn print_mover_rows(label: &str, movers: &[CollectionMover]) {
             .map(|p| format!("{p:+.1}%"))
             .unwrap_or_else(|| "—".into());
         println!(
-            "    {:<30} {} → {}  (Δ {} / {})",
+            "    {:<30} {} → {}  (Δ {} / {}){}",
             crate::output::truncate(&m.card.name, 30),
-            m.value_prev,
-            m.value_now,
+            m.price_prev,
+            m.price_now,
             m.change_usd,
-            pct
+            pct,
+            if m.foil { "  [foil]" } else { "" }
         );
     }
 }
