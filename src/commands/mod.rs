@@ -99,6 +99,7 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
         Command::Cards(a) => catalog::cards(&ctx, a).await,
         Command::Card(a) => catalog::card(&ctx, a).await,
         Command::CardNames(a) => catalog::card_names(&ctx, a).await,
+        Command::Search(a) => catalog::search(&ctx, a).await,
         Command::Prices(a) => catalog::prices(&ctx, a).await,
         Command::Prints(a) => catalog::prints(&ctx, a).await,
         Command::Sealed(a) => catalog::sealed(&ctx, a).await,

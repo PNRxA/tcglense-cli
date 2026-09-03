@@ -83,6 +83,9 @@ pub enum Command {
     /// Autocomplete distinct card names.
     #[command(name = "card-names")]
     CardNames(catalog::CardNamesArgs),
+    /// Search the whole catalog at once by name: cards, sealed products,
+    /// preconstructed decks and rules keywords.
+    Search(catalog::SearchArgs),
     /// Show a card's price history.
     Prices(catalog::PricesArgs),
     /// Show a card's other printings.

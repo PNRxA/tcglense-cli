@@ -1,5 +1,4 @@
 DELETE /api/auth/api-keys/{id}
-DELETE /api/collection/{game}/source
 DELETE /api/decks/{game}/folders/{folder_id}
 DELETE /api/decks/{game}/{deck_id}
 DELETE /api/decks/{game}/{deck_id}/sections/{section_id}
@@ -45,7 +44,6 @@ GET /api/collection/{game}/sets/{code}/subtypes
 GET /api/collection/{game}/sets/{code}/subtypes ?page
 GET /api/collection/{game}/sets/{code}/subtypes ?page_size
 GET /api/collection/{game}/sets/{code}/subtypes ?q
-GET /api/collection/{game}/source
 GET /api/collection/{game}/summary
 GET /api/collection/{game}/summary ?include_related
 GET /api/collection/{game}/summary ?set
@@ -53,6 +51,7 @@ GET /api/collection/{game}/value-history
 GET /api/collection/{game}/value-history ?range
 GET /api/collection/{game}/visibility
 GET /api/decks/{game}
+GET /api/decks/{game}/containing/{id}
 GET /api/decks/{game}/folders
 GET /api/decks/{game}/needed
 GET /api/decks/{game}/needed ?mode
@@ -72,6 +71,7 @@ GET /api/decks/{game}/{deck_id}/stats
 GET /api/decks/{game}/{deck_id}/stats ?card
 GET /api/decks/{game}/{deck_id}/stats ?cards_seen
 GET /api/decks/{game}/{deck_id}/stats ?sections
+GET /api/decks/{game}/{deck_id}/tokens
 GET /api/games
 GET /api/games/{game}/art-tags
 GET /api/games/{game}/art-tags ?limit
@@ -94,6 +94,9 @@ GET /api/games/{game}/cards/export ?q
 GET /api/games/{game}/cards/export ?sort
 GET /api/games/{game}/cards/{id}
 GET /api/games/{game}/cards/{id}/art-tags
+GET /api/games/{game}/cards/{id}/precons
+GET /api/games/{game}/cards/{id}/precons ?page
+GET /api/games/{game}/cards/{id}/precons ?page_size
 GET /api/games/{game}/cards/{id}/prices
 GET /api/games/{game}/cards/{id}/prices ?range
 GET /api/games/{game}/cards/{id}/prints
@@ -133,6 +136,7 @@ GET /api/games/{game}/precons/{slug}/stats
 GET /api/games/{game}/precons/{slug}/stats ?card
 GET /api/games/{game}/precons/{slug}/stats ?cards_seen
 GET /api/games/{game}/precons/{slug}/stats ?sections
+GET /api/games/{game}/precons/{slug}/tokens
 GET /api/games/{game}/products
 GET /api/games/{game}/products ?dir
 GET /api/games/{game}/products ?page
@@ -144,6 +148,7 @@ GET /api/games/{game}/products ?type
 GET /api/games/{game}/products/facets
 GET /api/games/{game}/products/{id}
 GET /api/games/{game}/products/{id}/cards
+GET /api/games/{game}/products/{id}/cards ?component
 GET /api/games/{game}/products/{id}/cards ?dir
 GET /api/games/{game}/products/{id}/cards ?page
 GET /api/games/{game}/products/{id}/cards ?page_size
@@ -156,6 +161,9 @@ GET /api/games/{game}/products/{id}/containers
 GET /api/games/{game}/products/{id}/contents
 GET /api/games/{game}/products/{id}/prices
 GET /api/games/{game}/products/{id}/prices ?range
+GET /api/games/{game}/search
+GET /api/games/{game}/search ?limit
+GET /api/games/{game}/search ?q
 GET /api/games/{game}/sets
 GET /api/games/{game}/sets/{code}
 GET /api/games/{game}/sets/{code}/cards
@@ -203,6 +211,7 @@ GET /api/u/{handle}/decks/{deck_id}/stats
 GET /api/u/{handle}/decks/{deck_id}/stats ?card
 GET /api/u/{handle}/decks/{deck_id}/stats ?cards_seen
 GET /api/u/{handle}/decks/{deck_id}/stats ?sections
+GET /api/u/{handle}/decks/{deck_id}/tokens
 GET /api/u/{handle}/wishlist/{game}
 GET /api/u/{handle}/wishlist/{game} ?dir
 GET /api/u/{handle}/wishlist/{game} ?include_related
@@ -312,7 +321,6 @@ POST /api/collection/{game}/owned
 POST /api/collection/{game}/owned +ids
 POST /api/collection/{game}/products/owned
 POST /api/collection/{game}/products/owned +ids
-POST /api/collection/{game}/sync
 POST /api/decks/{game}
 POST /api/decks/{game} +description
 POST /api/decks/{game} +folder_id
@@ -370,10 +378,6 @@ PUT /api/collection/{game}/cards/{id} +quantity
 PUT /api/collection/{game}/products/{id}
 PUT /api/collection/{game}/products/{id} +foil_quantity
 PUT /api/collection/{game}/products/{id} +quantity
-PUT /api/collection/{game}/source
-PUT /api/collection/{game}/source +provider
-PUT /api/collection/{game}/source +smart
-PUT /api/collection/{game}/source +source
 PUT /api/collection/{game}/visibility
 PUT /api/collection/{game}/visibility +public
 PUT /api/collection/{game}/visibility +show_movers

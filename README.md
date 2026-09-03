@@ -131,6 +131,7 @@ tcglense sets mtg
 tcglense set mtg blb --cards -q 't:creature c:g' --sort price --dir desc
 tcglense set mtg sld --drops --drop 'happy'          # Secret Lair drops, filtered by title
 tcglense cards mtg -q 'lightning bolt' --sort price --dir desc
+tcglense search mtg 'sol ring'                      # cards, products, precons + keywords by name
 tcglense card mtg <card-id>                          # detail, incl. per-format legality
 tcglense prices mtg <card-id> --range 1y
 tcglense prints mtg <card-id>
@@ -139,12 +140,15 @@ tcglense sealed mtg <card-id>
 tcglense products mtg --set blb --sort price --dir desc
 tcglense product mtg <product-id> contents
 tcglense product mtg <product-id> cards -q 't:creature' --sort price --dir desc
+tcglense product mtg <product-id> cards --component <name>   # one unlisted box component (see `sections`)
 tcglense precons mtg list --type 'Commander Deck'     # decklists that ship with the sets
 tcglense precons mtg groups --group set --set tmc     # bucketed by set (or by --group type)
 tcglense precons mtg facets                           # the deck types + sets that have precons
 tcglense precons mtg show turtle-power-tmc            # header, value, every card, the product
 tcglense precons mtg bracket turtle-power-tmc         # estimated Commander bracket (1–5)
 tcglense precons mtg goldfish turtle-power-tmc --seed 42
+tcglense precons mtg tokens turtle-power-tmc          # the tokens + emblems the decklist makes
+tcglense precons mtg containing <card-id>            # the precons that include a card
 tcglense precons mtg copy turtle-power-tmc            # clone it into your decks (auth required)
 tcglense keywords mtg --full                         # the rules glossary
 tcglense formats mtg --popular                       # formats legality is tracked for
@@ -183,6 +187,8 @@ tcglense decks mtg legality <deck-id>                # verdict against the deck'
 tcglense decks mtg bracket <deck-id>                 # estimated Commander bracket, and why
 tcglense decks mtg stats <deck-id> --card 'Sol Ring' # curve, colours, types + draw odds
 tcglense decks mtg goldfish <deck-id> --mulligans 1 --bottom <card-id>   # sample opener
+tcglense decks mtg tokens <deck-id>                  # tokens + emblems to bring besides the deck
+tcglense decks mtg containing <card-id>              # your decks that run (or consider) a card
 
 # Life tracker (auth required)
 tcglense life mtg start --player 'Alice,deck=12' --player 'Bob,commander=<card-id>'
@@ -208,6 +214,7 @@ tcglense public alice-0001 deck <deck-id> legality
 tcglense public alice-0001 deck <deck-id> bracket
 tcglense public alice-0001 deck <deck-id> stats
 tcglense public alice-0001 deck <deck-id> goldfish --seed 42
+tcglense public alice-0001 deck <deck-id> tokens
 tcglense public alice-0001 deck <deck-id> copy       # clone a public deck into your own
 
 # Server / meta

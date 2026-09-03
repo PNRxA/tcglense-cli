@@ -3,7 +3,7 @@
 //! themes, intro packs. Browse them flat or bucketed, read one in full, and copy
 //! one into your own decks.
 //!
-//! The per-deck reads (`legality`, `bracket`, `stats`, `goldfish`) are computed by
+//! The per-deck reads (`legality`, `bracket`, `stats`, `goldfish`, `tokens`) are computed by
 //! the same core over the published list as over a deck of your own, so they reuse
 //! the handlers in [`super::decks`] with the precon's base path — the same way
 //! `public.rs` reuses them for a shared deck. The one write lives on the *decks*
@@ -99,6 +99,17 @@ pub enum PreconsCommand {
         #[command(flatten)]
         args: decks::GoldfishArgs,
     },
+    /// The tokens and emblems the decklist makes (its product's own token sheet).
+    Tokens { slug: String },
+    /// List the precons that contain a card — any printing of it, on any board.
+    Containing {
+        /// External card id.
+        card_id: String,
+        #[arg(long)]
+        page: Option<u32>,
+        #[arg(long)]
+        page_size: Option<u32>,
+    },
     /// Copy the precon into your own decks (auth required; starts private + loose).
     Copy { slug: String },
 }
@@ -174,6 +185,32 @@ pub async fn run(ctx: &Ctx, args: PreconsArgs) -> Result<()> {
         PreconsCommand::Goldfish { slug, args } => {
             decks::goldfish(ctx, &format!("{base}/{slug}"), args).await?
         }
+        PreconsCommand::Tokens { slug } => decks::tokens(ctx, &format!("{base}/{slug}")).await?,
+        PreconsCommand::Containing {
+            card_id,
+            page,
+            page_size,
+        } => {
+            // Answered off the card, not the precon surface: a card's "appears in"
+            // list, paginated like the browse (a format staple is in hundreds).
+            let mut q: Vec<(&'static str, String)> = Vec::new();
+            push_opt(&mut q, "page", &page);
+            push_opt(&mut q, "page_size", &page_size);
+            let page: Page<CardPreconRef> = ctx
+                .client
+                .get_json(&format!("/api/games/{game}/cards/{card_id}/precons"), &q)
+                .await?;
+            if ctx.printer.json {
+                ctx.printer.json(&page)?;
+            } else {
+                if page.data.is_empty() {
+                    println!("No preconstructed deck contains this card.");
+                } else {
+                    card_precons_table(&page.data);
+                }
+                page_footer(ctx, page.page, page.total, page.has_more, "decks");
+            }
+        }
         PreconsCommand::Copy { slug } => {
             let d: DeckDetail = ctx
                 .client
@@ -197,8 +234,10 @@ pub async fn run(ctx: &Ctx, args: PreconsArgs) -> Result<()> {
 
 // -- rendering ---------------------------------------------------------------
 
-fn precons_table(decks: &[PreconDeck]) {
-    let mut t = table(&["Slug", "Name", "Set", "Type", "Colours", "Cards", "Side"]);
+pub(crate) fn precons_table(decks: &[PreconDeck]) {
+    let mut t = table(&[
+        "Slug", "Name", "Set", "Type", "Colours", "Cards", "Side", "USD",
+    ]);
     for d in decks {
         t.add_row(vec![
             // The slug is printed whole: it's the handle every other `precons`
@@ -213,6 +252,27 @@ fn precons_table(decks: &[PreconDeck]) {
             colours(&d.color_identity),
             d.card_count.to_string(),
             d.sideboard_count.to_string(),
+            output::price(&d.price_usd),
+        ]);
+    }
+    println!("{t}");
+}
+
+/// The precons a card appears in: the browse header plus how the card sits in
+/// each — copies, foil-only or not, and whether it leads from the command zone.
+fn card_precons_table(refs: &[CardPreconRef]) {
+    let mut t = table(&["Slug", "Name", "Set", "Type", "Qty", "Foil", "Leads", "USD"]);
+    for r in refs {
+        let d = &r.precon;
+        t.add_row(vec![
+            d.slug.clone(),
+            output::truncate(&d.name, 28),
+            d.set_code.to_uppercase(),
+            output::truncate(&d.deck_type, 16),
+            r.quantity.to_string(),
+            if r.foil { "yes" } else { "" }.to_string(),
+            if r.commander { "yes" } else { "" }.to_string(),
+            output::price(&d.price_usd),
         ]);
     }
     println!("{t}");

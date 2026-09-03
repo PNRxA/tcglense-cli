@@ -125,6 +125,13 @@ pub enum DecksCommand {
         #[command(flatten)]
         args: GoldfishArgs,
     },
+    /// The tokens and emblems the deck's cards make — what to bring besides the deck.
+    Tokens { deck_id: i64 },
+    /// List your decks that contain a card (any printing of it), latest edit first.
+    Containing {
+        /// External card id.
+        card_id: String,
+    },
 }
 
 /// Options shared by the private and public deck-analytics reads.
@@ -457,6 +464,8 @@ pub async fn run(ctx: &Ctx, args: DecksArgs) -> Result<()> {
         DecksCommand::Goldfish { deck_id, args } => {
             goldfish(ctx, &format!("{base}/{deck_id}"), args).await?
         }
+        DecksCommand::Tokens { deck_id } => tokens(ctx, &format!("{base}/{deck_id}")).await?,
+        DecksCommand::Containing { card_id } => containing(ctx, &base, &card_id).await?,
         DecksCommand::Visibility { deck_id, public } => {
             let body = serde_json::json!({ "public": public });
             let v: DeckVisibility = ctx
@@ -664,9 +673,76 @@ async fn needed(ctx: &Ctx, base: &str, mode: NeededMode) -> Result<()> {
     Ok(())
 }
 
-// -- legality / bracket / analytics / goldfish --------------------------------
+/// The caller's decks that hold any printing of a card, most recently updated
+/// first. The copies are split between the deck proper and the maybeboard, so a
+/// deck that only *considers* the card is named without claiming it runs it.
+async fn containing(ctx: &Ctx, base: &str, card_id: &str) -> Result<()> {
+    let body: DataBody<Vec<CardDeckRef>> = ctx
+        .client
+        .get_json(&format!("{base}/containing/{card_id}"), &[])
+        .await?;
+    if ctx.printer.json {
+        return ctx.printer.json(&body.data);
+    }
+    if body.data.is_empty() {
+        println!("None of your decks contain this card.");
+        return Ok(());
+    }
+    let mut t = table(&[
+        "ID",
+        "Deck",
+        "Commander",
+        "Format",
+        "Qty",
+        "Maybeboard",
+        "Printings (all boards)",
+    ]);
+    for r in &body.data {
+        // Which exact printings the copies are, so a deck running a *different*
+        // printing than the one asked about reads as such. These counts span both
+        // boards, so they total `Qty` + `Maybeboard`, not `Qty` alone.
+        let printings: Vec<String> = r
+            .printings
+            .iter()
+            .map(|p| {
+                format!(
+                    "{}× {} {}",
+                    p.quantity,
+                    p.set_code.to_uppercase(),
+                    p.collector_number
+                )
+            })
+            .collect();
+        t.add_row(vec![
+            r.deck.id.to_string(),
+            output::truncate(&r.deck.name, 30),
+            output::truncate(&commanders(&r.deck), 24),
+            output::dash(&r.deck.format),
+            r.quantity.to_string(),
+            r.maybeboard_quantity.to_string(),
+            output::truncate(&printings.join(", "), 36),
+        ]);
+    }
+    println!("{t}");
+    ctx.printer.note(format!("{} deck(s).", body.data.len()));
+    Ok(())
+}
+
+/// A deck's command zone by name (`Thrasios & Tymna`), `—` when it has none.
+fn commanders(d: &Deck) -> String {
+    if d.commanders.is_empty() {
+        return "—".to_string();
+    }
+    d.commanders
+        .iter()
+        .map(|c| c.name.as_str())
+        .collect::<Vec<_>>()
+        .join(" & ")
+}
+
+// -- legality / bracket / analytics / goldfish / tokens -----------------------
 //
-// These four reads exist several times over — once for your own decks under
+// These reads exist several times over — once for your own decks under
 // `/api/decks/{game}/{deck_id}`, once for a shared one under
 // `/api/u/{handle}/decks/{deck_id}`, and once more over a published decklist under
 // `/api/games/{game}/precons/{slug}` — and are identical bar the base path, so each
@@ -918,6 +994,69 @@ pub async fn goldfish(ctx: &Ctx, deck_base: &str, args: GoldfishArgs) -> Result<
         "Replay this hand with --seed {} (plus the same options).",
         h.seed
     ));
+    Ok(())
+}
+
+/// The tokens and emblems the deck's cards make — what a player brings to a game
+/// besides the deck — each with the cards that make it. Read off the catalog's
+/// per-card token relations, never inferred from rules text, and scoped to the
+/// deck proper (a maybeboard card sends you looking for nothing).
+pub async fn tokens(ctx: &Ctx, deck_base: &str) -> Result<()> {
+    let body: DeckTokens = ctx
+        .client
+        .get_json(&format!("{deck_base}/tokens"), &[])
+        .await?;
+    if ctx.printer.json {
+        return ctx.printer.json(&body);
+    }
+    if body.tokens.is_empty() {
+        println!(
+            "{}",
+            if body.unchecked_count > 0 {
+                "No tokens found yet."
+            } else {
+                "This deck makes no tokens."
+            }
+        );
+    } else {
+        let mut t = table(&["Token", "Type", "Set", "#", "Makers", "Made by"]);
+        for tok in &body.tokens {
+            let mut makers: Vec<String> = tok
+                .sources
+                .iter()
+                .map(|s| {
+                    if s.quantity > 1 {
+                        format!("{}× {}", s.quantity, s.name)
+                    } else {
+                        s.name.clone()
+                    }
+                })
+                .collect();
+            // `sources` is capped upstream; `source_count` is the exact figure.
+            if tok.source_count > tok.sources.len() as i64 {
+                makers.push("…".to_string());
+            }
+            let (set, number) = match &tok.card {
+                Some(c) => (c.set_code.to_uppercase(), c.collector_number.clone()),
+                None => ("—".to_string(), "—".to_string()),
+            };
+            t.add_row(vec![
+                output::truncate(&tok.name, 26),
+                output::truncate(tok.type_line.as_deref().unwrap_or("—"), 28),
+                set,
+                number,
+                tok.source_count.to_string(),
+                output::truncate(&makers.join(", "), 40),
+            ]);
+        }
+        println!("{t}");
+    }
+    if body.unchecked_count > 0 {
+        ctx.printer.note(format!(
+            "{} card(s) haven't been checked for tokens yet — the list is a floor, not the whole answer.",
+            body.unchecked_count
+        ));
+    }
     Ok(())
 }
 
