@@ -1,5 +1,5 @@
 //! Collection commands: the shared holdings engine plus the collection-only
-//! import/sync/export, value history, movers, saved source, and visibility.
+//! import/export, value history, movers, and visibility.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -132,22 +132,12 @@ pub enum CollectionCommand {
         #[arg(long, value_enum, default_value_t = Mode::Merge)]
         mode: Mode,
     },
-    /// Poll an import/sync job by id.
+    /// Poll an import job by id.
     Job {
         job_id: i64,
         /// Poll until the job finishes.
         #[arg(long)]
         wait: bool,
-    },
-    /// Re-sync from the saved source (async; polls to completion).
-    Sync {
-        #[arg(long)]
-        no_wait: bool,
-    },
-    /// Manage the saved collection source link.
-    Source {
-        #[command(subcommand)]
-        command: SourceCommand,
     },
     /// Export the whole collection as a provider-shaped CSV.
     Export {
@@ -184,24 +174,6 @@ pub enum CollectionCommand {
         #[command(subcommand)]
         command: ProductHoldingCommand,
     },
-}
-
-#[derive(Debug, Subcommand)]
-pub enum SourceCommand {
-    /// Show the saved source link.
-    Show,
-    /// Save/replace the source link.
-    Set {
-        #[arg(long, value_enum)]
-        provider: Provider,
-        #[arg(long)]
-        source: String,
-        /// Use smart (incremental) sync for re-syncs.
-        #[arg(long)]
-        smart: bool,
-    },
-    /// Forget the saved source link.
-    Delete,
 }
 
 #[derive(Debug, Subcommand)]
@@ -330,8 +302,6 @@ pub async fn run(ctx: &Ctx, args: CollectionArgs) -> Result<()> {
             }
             Ok(())
         }
-        CollectionCommand::Sync { no_wait } => sync(ctx, &s, no_wait).await,
-        CollectionCommand::Source { command } => source(ctx, &s, command).await,
         CollectionCommand::Export { format, output } => export(ctx, &s, format, output).await,
         CollectionCommand::ExportCards {
             query,
@@ -490,26 +460,6 @@ async fn import_text(ctx: &Ctx, s: &Surface, file: Option<PathBuf>, mode: Mode) 
     Ok(())
 }
 
-async fn sync(ctx: &Ctx, s: &Surface, no_wait: bool) -> Result<()> {
-    let job: ImportJob = ctx
-        .client
-        .post_json(&format!("{}/sync", s.base), serde_json::json!({}))
-        .await?;
-    ctx.printer.note(format!(
-        "Enqueued sync job {} ({}).",
-        job.job_id, job.status
-    ));
-    if no_wait {
-        if ctx.printer.json {
-            ctx.printer.json(&job)?;
-        }
-        return Ok(());
-    }
-    let job = wait_for_job(ctx, s, job.job_id).await?;
-    report_job(ctx, &job);
-    Ok(())
-}
-
 async fn fetch_job(ctx: &Ctx, s: &Surface, job_id: i64) -> Result<ImportJob> {
     let path = format!("{}/import/jobs/{}", s.base, job_id);
     ctx.client.get_json(&path, &[]).await
@@ -577,60 +527,9 @@ fn print_summary(ctx: &Ctx, s: &ImportSummary) {
     if s.removed_cards > 0 {
         println!("  removed        : {}", s.removed_cards);
     }
-    if s.stopped_early {
-        println!("  stopped early  : yes (smart sync)");
-    }
     if !s.unmatched_sample.is_empty() {
         println!("  unmatched e.g. : {}", s.unmatched_sample.join(", "));
     }
-}
-
-async fn source(ctx: &Ctx, s: &Surface, cmd: SourceCommand) -> Result<()> {
-    let path = format!("{}/source", s.base);
-    match cmd {
-        SourceCommand::Show => {
-            let src: Option<CollectionSource> = ctx.client.get_json(&path, &[]).await?;
-            match src {
-                None => ctx.printer.note("No saved source."),
-                Some(src) => {
-                    if ctx.printer.json {
-                        ctx.printer.json(&src)?;
-                    } else {
-                        println!("provider    : {}", src.provider);
-                        println!("external_id : {}", src.external_id);
-                        println!("url         : {}", src.url);
-                        println!("smart       : {}", src.smart);
-                        println!(
-                            "last synced : {}",
-                            src.last_synced_at.as_deref().unwrap_or("never")
-                        );
-                    }
-                }
-            }
-        }
-        SourceCommand::Set {
-            provider,
-            source,
-            smart,
-        } => {
-            let body = serde_json::json!({
-                "provider": provider.as_str(),
-                "source": source,
-                "smart": smart,
-            });
-            let src: CollectionSource = ctx.client.put_json(&path, body).await?;
-            if ctx.printer.json {
-                ctx.printer.json(&src)?;
-            } else {
-                println!("Saved source: {} ({}).", src.url, src.provider);
-            }
-        }
-        SourceCommand::Delete => {
-            ctx.client.delete(&path).await?;
-            ctx.printer.note("Deleted saved source.");
-        }
-    }
-    Ok(())
 }
 
 async fn export(

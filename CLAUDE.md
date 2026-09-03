@@ -87,5 +87,5 @@ the fix is usually a new flag threaded into that handler's existing query/body b
 An endpoint that exists more than once — under `/api/decks/{game}/{deck_id}`, under
 `/api/u/{handle}/decks/{deck_id}`, and again over a published decklist under
 `/api/games/{game}/precons/{slug}` — gets one handler taking the deck's base path, which
-`public.rs` and `precons.rs` reuse (see `decks::{legality,bracket,stats,goldfish}`), the
+`public.rs` and `precons.rs` reuse (see `decks::{legality,bracket,stats,goldfish,tokens}`), the
 same way the holdings engine is parameterised by `Surface`.

@@ -64,6 +64,8 @@ pub enum PublicDeckCommand {
         #[command(flatten)]
         args: decks::GoldfishArgs,
     },
+    /// The tokens and emblems the deck's cards make.
+    Tokens,
 }
 
 /// The read-only holdings surface shared by the public collection and wish list
@@ -218,6 +220,9 @@ pub async fn run(ctx: &Ctx, args: PublicArgs) -> Result<()> {
             }
             Some(PublicDeckCommand::Goldfish { args }) => {
                 decks::goldfish(ctx, &format!("/api/u/{handle}/decks/{deck_id}"), args).await?
+            }
+            Some(PublicDeckCommand::Tokens) => {
+                decks::tokens(ctx, &format!("/api/u/{handle}/decks/{deck_id}")).await?
             }
             None => {
                 let d: DeckDetail = ctx

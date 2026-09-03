@@ -325,6 +325,10 @@ pub struct ProductCardSection {
     pub key: String,
     pub total: i64,
     pub booster_family: Option<String>,
+    /// The unlisted box component this section's cards are packed in — also the
+    /// `--component` value that pages them; null for a plain section.
+    #[serde(default)]
+    pub component: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -382,15 +386,6 @@ pub struct CollectionSet {
     pub owned_copies: i64,
     pub owned_value_usd: Option<String>,
     pub owned_bulk_value_usd: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CollectionSource {
-    pub provider: String,
-    pub external_id: String,
-    pub url: String,
-    pub last_synced_at: Option<String>,
-    pub smart: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -518,7 +513,7 @@ pub struct ProductHoldingSet {
     pub total_value_usd: Option<String>,
 }
 
-// Import / sync --------------------------------------------------------------
+// Import ---------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImportProgress {
@@ -538,7 +533,6 @@ pub struct ImportSummary {
     pub regular_copies: i64,
     pub foil_copies: i64,
     pub removed_cards: i64,
-    pub stopped_early: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -861,6 +855,72 @@ pub struct NeededCard {
     pub decks: Vec<NeededCardDeck>,
 }
 
+// Card → decks, deck → tokens ------------------------------------------------
+
+/// The exact printing behind some of the copies a deck runs of a card.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CardDeckPrintingRef {
+    pub id: String,
+    pub set_code: String,
+    pub collector_number: String,
+    pub quantity: i64,
+}
+
+/// One of the caller's decks that contains a card — any printing of it — with the
+/// copies split between the deck proper and the maybeboard, so "runs it" and "only
+/// considering it" read apart.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CardDeckRef {
+    pub deck: Deck,
+    /// Copies (regular + foil, any printing) in the deck proper — maybeboards excluded.
+    pub quantity: i64,
+    /// Copies in the deck's maybeboard sections, counted apart from `quantity`.
+    pub maybeboard_quantity: i64,
+    /// The exact printings behind those copies, most copies first. May sum short of
+    /// the totals above (a printing gone from the catalog is simply absent).
+    #[serde(default)]
+    pub printings: Vec<CardDeckPrintingRef>,
+}
+
+/// One of a deck's cards that makes a token, with how many copies the deck runs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeckTokenSource {
+    pub card_id: String,
+    pub name: String,
+    pub quantity: i64,
+}
+
+/// One token (or emblem) a deck makes, and what makes it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeckToken {
+    /// Stable identity across sets: the token printing's oracle id where the catalog
+    /// has it, else a name + type-line key.
+    pub key: String,
+    pub name: String,
+    /// The token's printed type line (`Token Creature — Soldier`, `Emblem — Elspeth`).
+    #[serde(default)]
+    pub type_line: Option<String>,
+    /// A printing of the token (the newest one the deck's cards point at); null when
+    /// no referenced printing is in the catalog.
+    #[serde(default)]
+    pub card: Option<Card>,
+    /// The deck's cards that make it, by name, capped upstream — `source_count`
+    /// stays exact.
+    pub sources: Vec<DeckTokenSource>,
+    /// How many distinct cards in the deck make it.
+    pub source_count: i64,
+}
+
+/// The tokens and emblems a deck's cards make.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeckTokens {
+    /// Most-made first, then by name.
+    pub tokens: Vec<DeckToken>,
+    /// Cards in the deck proper whose catalog row hasn't been checked for tokens
+    /// yet; while non-zero the list is a floor, not the whole answer.
+    pub unchecked_count: i64,
+}
+
 // ---------------------------------------------------------------------------
 // Preconstructed decks
 // ---------------------------------------------------------------------------
@@ -983,6 +1043,46 @@ pub struct PreconDeckDetail {
     /// The sealed product this deck ships in, when the catalog holds one.
     #[serde(default)]
     pub product: Option<Product>,
+}
+
+/// One preconstructed deck containing a card (any printing, on any board): the
+/// deck's browse header plus how the card sits in it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CardPreconRef {
+    pub precon: PreconDeck,
+    /// Total copies of the card in the deck — any board, any printing, any finish.
+    pub quantity: i64,
+    /// `true` when every copy is foil (a foil-only inclusion).
+    pub foil: bool,
+    /// `true` when a copy sits in the command zone — the card *leads* this deck.
+    pub commander: bool,
+}
+
+// ---------------------------------------------------------------------------
+// Search
+// ---------------------------------------------------------------------------
+
+/// One kind's slice of a catalog search: the top matches, plus whether more
+/// matched than the limit let through.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchGroup<T> {
+    pub data: Vec<T>,
+    pub has_more: bool,
+}
+
+/// Everything the catalog knows that matches one query, grouped by kind. Every
+/// group carries the same wire shape its own listing does, so the rows render with
+/// the tables those listings already use.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchResults {
+    /// Distinct card names, each as one representative printing.
+    pub cards: SearchGroup<Card>,
+    /// Sealed products (boxes, bundles, decks) by name.
+    pub products: SearchGroup<Product>,
+    /// Preconstructed decks by name.
+    pub precons: SearchGroup<PreconDeck>,
+    /// Rules keywords by name — never by reminder text.
+    pub keywords: SearchGroup<Keyword>,
 }
 
 // ---------------------------------------------------------------------------

@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use anyhow::{Result, bail};
 use clap::{Args, Subcommand};
 
-use super::{CardExportFormat, Ctx, page_footer, push_flag, push_opt};
+use super::{CardExportFormat, Ctx, page_footer, precons, push_flag, push_opt};
 use crate::models::*;
 use crate::output::{
     self, card_detail, cards_table, games_table, prices_table, products_table, sets_table, table,
@@ -90,6 +90,16 @@ pub struct CardArgs {
 pub struct CardNamesArgs {
     pub game: String,
     pub query: String,
+    #[arg(long)]
+    pub limit: Option<u32>,
+}
+
+#[derive(Debug, Args)]
+pub struct SearchArgs {
+    pub game: String,
+    /// Words every match's name must contain (any order, case-insensitive).
+    pub query: String,
+    /// Max matches per group (clamped to 1..=10; default 5).
     #[arg(long)]
     pub limit: Option<u32>,
 }
@@ -183,6 +193,10 @@ pub enum ProductCommand {
         /// Restrict to one display section: contains | exclusive | booster | variable.
         #[arg(long)]
         section: Option<String>,
+        /// Page the cards packed in one unlisted box component instead (a
+        /// `component` value from `sections`); a name matching none is an empty page.
+        #[arg(long)]
+        component: Option<String>,
         /// Scryfall-style filter narrowing the product's cards.
         #[arg(short = 'q', long)]
         query: Option<String>,
@@ -531,22 +545,71 @@ pub async fn keywords(ctx: &Ctx, args: KeywordsArgs) -> Result<()> {
             println!("  {}\n", k.text);
         }
     } else {
-        let mut t = table(&["Name", "Kind", "Slug", "Explanation"]);
-        for k in &body.data {
-            t.add_row(vec![
-                k.name.clone(),
-                k.kind.clone(),
-                k.slug.clone(),
-                output::truncate(&k.text, 72),
-            ]);
-        }
-        println!("{t}");
+        keywords_table(&body.data);
         ctx.printer.note(format!(
             "{} entries (--full for each explanation).",
             body.data.len()
         ));
     }
     Ok(())
+}
+
+fn keywords_table(entries: &[Keyword]) {
+    let mut t = table(&["Name", "Kind", "Slug", "Explanation"]);
+    for k in entries {
+        t.add_row(vec![
+            k.name.clone(),
+            k.kind.clone(),
+            k.slug.clone(),
+            output::truncate(&k.text, 72),
+        ]);
+    }
+    println!("{t}");
+}
+
+/// One search across everything the catalog names — cards (one per distinct
+/// name), sealed products, preconstructed decks and rules keywords — each group
+/// capped at `--limit` and flagging whether more matched than fit.
+pub async fn search(ctx: &Ctx, args: SearchArgs) -> Result<()> {
+    let mut q: Vec<(&str, String)> = vec![("q", args.query)];
+    push_opt(&mut q, "limit", &args.limit);
+    let r: SearchResults = ctx
+        .client
+        .get_json(&format!("/api/games/{}/search", args.game), &q)
+        .await?;
+    if ctx.printer.json {
+        return ctx.printer.json(&r);
+    }
+    // Each group renders with the table its own listing uses.
+    let shown = [
+        search_group("Cards", &r.cards, cards_table),
+        search_group("Sealed products", &r.products, products_table),
+        search_group("Preconstructed decks", &r.precons, precons::precons_table),
+        search_group("Keywords", &r.keywords, keywords_table),
+    ];
+    if !shown.contains(&true) {
+        println!("No matches.");
+    }
+    Ok(())
+}
+
+/// Render one group of a search answer under a heading — nothing at all when it
+/// is empty — and say whether anything was shown.
+fn search_group<T>(label: &str, group: &SearchGroup<T>, render: fn(&[T])) -> bool {
+    if group.data.is_empty() {
+        return false;
+    }
+    println!(
+        "\n== {label} ({}{}) ==",
+        group.data.len(),
+        if group.has_more {
+            ", more matched — raise --limit or narrow the query"
+        } else {
+            ""
+        }
+    );
+    render(&group.data);
+    true
 }
 
 /// The formats this game tracks deck legality for — the spellings `decks … create
@@ -831,6 +894,7 @@ pub async fn product(ctx: &Ctx, args: ProductArgs) -> Result<()> {
         }
         Some(ProductCommand::Cards {
             section,
+            component,
             query,
             sort,
             dir,
@@ -839,6 +903,7 @@ pub async fn product(ctx: &Ctx, args: ProductArgs) -> Result<()> {
         }) => {
             let mut q: Vec<(&str, String)> = Vec::new();
             push_opt(&mut q, "section", &section);
+            push_opt(&mut q, "component", &component);
             push_opt(&mut q, "q", &query);
             push_opt(&mut q, "sort", &sort);
             push_opt(&mut q, "dir", &dir);
@@ -874,12 +939,13 @@ pub async fn product(ctx: &Ctx, args: ProductArgs) -> Result<()> {
             if ctx.printer.json {
                 ctx.printer.json(&body.data)?;
             } else {
-                let mut t = table(&["Section", "Cards", "Booster family"]);
+                let mut t = table(&["Section", "Cards", "Booster family", "Component"]);
                 for s in &body.data {
                     t.add_row(vec![
                         s.key.clone(),
                         s.total.to_string(),
                         output::dash(&s.booster_family),
+                        output::dash(&s.component),
                     ]);
                 }
                 println!("{t}");
