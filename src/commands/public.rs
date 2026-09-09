@@ -1,14 +1,14 @@
 //! Public, handle-keyed surfaces: another user's profile, shared collection, shared
 //! wish list, and public decks. The reads are unauthenticated (no credential is
-//! required or sent); the one write — copying a public deck into your own decks —
-//! needs a credential.
+//! required or sent); the two writes — copying a public deck into your own decks,
+//! and adding its cards to your collection — need a credential.
 
 use anyhow::Result;
 use clap::{Args, Subcommand};
 
 use super::Ctx;
 use super::decks;
-use super::holdings::{self, Surface};
+use super::holdings::{self, CopyFilter, ListFilter, Surface};
 use crate::models::*;
 use crate::output::{decks_table, table};
 
@@ -66,6 +66,18 @@ pub enum PublicDeckCommand {
     },
     /// The tokens and emblems the deck's cards make.
     Tokens,
+    /// The combos the deck can assemble, and the ones it's one card away from.
+    Combos,
+    /// The deck's colour requirements against the sources its library produces.
+    Mana,
+    /// Where the deck's value is: every row priced, with its cheapest printing.
+    Pricing,
+    /// Ramp, draw, removal, wipes, counters, tutors, recursion and protection counts.
+    Roles,
+    /// Add every card of this public deck to your collection (auth required). Not
+    /// idempotent: it adds on top of what you own, so a second run adds a second
+    /// copy.
+    AddToCollection,
 }
 
 /// The read-only holdings surface shared by the public collection and wish list
@@ -74,18 +86,8 @@ pub enum PublicDeckCommand {
 pub enum PublicHoldingsCommand {
     /// List held cards.
     List {
-        #[arg(short = 'q', long)]
-        query: Option<String>,
-        #[arg(long)]
-        set: Option<String>,
-        #[arg(long)]
-        related: bool,
-        /// Sort key: updated | quantity | name | rarity | released | cmc | price.
-        #[arg(long)]
-        sort: Option<String>,
-        /// Direction: asc | desc.
-        #[arg(long)]
-        dir: Option<String>,
+        #[command(flatten)]
+        filter: ListFilter,
         #[arg(long)]
         page: Option<u32>,
         #[arg(long)]
@@ -112,8 +114,11 @@ pub enum PublicHoldingsCommand {
     /// Held cards in a drop-grouped set, grouped by drop.
     Drops {
         code: String,
+        /// Scryfall-style search filter within the set.
         #[arg(short = 'q', long)]
         query: Option<String>,
+        #[command(flatten)]
+        copies: CopyFilter,
         #[arg(long)]
         page: Option<u32>,
         #[arg(long)]
@@ -122,8 +127,11 @@ pub enum PublicHoldingsCommand {
     /// Held cards in a set, grouped by sub-type.
     Subtypes {
         code: String,
+        /// Scryfall-style search filter within the set.
         #[arg(short = 'q', long)]
         query: Option<String>,
+        #[command(flatten)]
+        copies: CopyFilter,
         #[arg(long)]
         page: Option<u32>,
         #[arg(long)]
@@ -208,66 +216,64 @@ pub async fn run(ctx: &Ctx, args: PublicArgs) -> Result<()> {
                 decks_table(&body.data);
             }
         }
-        PublicCommand::Deck { deck_id, command } => match command {
-            Some(PublicDeckCommand::Legality) => {
-                decks::legality(ctx, &format!("/api/u/{handle}/decks/{deck_id}")).await?
-            }
-            Some(PublicDeckCommand::Bracket) => {
-                decks::bracket(ctx, &format!("/api/u/{handle}/decks/{deck_id}")).await?
-            }
-            Some(PublicDeckCommand::Stats { args }) => {
-                decks::stats(ctx, &format!("/api/u/{handle}/decks/{deck_id}"), args).await?
-            }
-            Some(PublicDeckCommand::Goldfish { args }) => {
-                decks::goldfish(ctx, &format!("/api/u/{handle}/decks/{deck_id}"), args).await?
-            }
-            Some(PublicDeckCommand::Tokens) => {
-                decks::tokens(ctx, &format!("/api/u/{handle}/decks/{deck_id}")).await?
-            }
-            None => {
-                let d: DeckDetail = ctx
-                    .client
-                    .get_json(&format!("/api/u/{handle}/decks/{deck_id}"), &[])
-                    .await?;
-                if ctx.printer.json {
-                    ctx.printer.json(&d)?;
-                } else {
-                    println!("{} by {}", d.name, d.handle.as_deref().unwrap_or("?"));
-                    println!(
-                        "  format: {}  ·  cards: {}",
-                        d.format.as_deref().unwrap_or("—"),
-                        d.summary.total_cards
-                    );
-                    let mut t = table(&["Qty", "Foil", "Name", "Set"]);
-                    for c in &d.cards {
-                        t.add_row(vec![
-                            c.quantity.to_string(),
-                            c.foil_quantity.to_string(),
-                            crate::output::truncate(&c.card.name, 34),
-                            c.card.set_code.to_uppercase(),
-                        ]);
+        PublicCommand::Deck { deck_id, command } => {
+            // Every per-deck read is the owner's own handler over the shared deck's
+            // base path — the same reuse `precons.rs` makes.
+            let dbase = format!("/api/u/{handle}/decks/{deck_id}");
+            match command {
+                Some(PublicDeckCommand::Legality) => decks::legality(ctx, &dbase).await?,
+                Some(PublicDeckCommand::Bracket) => decks::bracket(ctx, &dbase).await?,
+                Some(PublicDeckCommand::Stats { args }) => decks::stats(ctx, &dbase, args).await?,
+                Some(PublicDeckCommand::Goldfish { args }) => {
+                    decks::goldfish(ctx, &dbase, args).await?
+                }
+                Some(PublicDeckCommand::Tokens) => decks::tokens(ctx, &dbase).await?,
+                Some(PublicDeckCommand::Combos) => decks::combos(ctx, &dbase).await?,
+                Some(PublicDeckCommand::Mana) => decks::mana(ctx, &dbase).await?,
+                Some(PublicDeckCommand::Pricing) => decks::pricing(ctx, &dbase).await?,
+                Some(PublicDeckCommand::Roles) => decks::roles(ctx, &dbase).await?,
+                Some(PublicDeckCommand::AddToCollection) => {
+                    decks::add_to_collection(ctx, &format!("{dbase}/collection")).await?
+                }
+                None => {
+                    let d: DeckDetail = ctx.client.get_json(&dbase, &[]).await?;
+                    if ctx.printer.json {
+                        ctx.printer.json(&d)?;
+                    } else {
+                        println!("{} by {}", d.name, d.handle.as_deref().unwrap_or("?"));
+                        println!(
+                            "  format: {}  ·  cards: {}",
+                            d.format.as_deref().unwrap_or("—"),
+                            d.summary.total_cards
+                        );
+                        let mut t = table(&["Qty", "Foil", "Name", "Set"]);
+                        for c in &d.cards {
+                            t.add_row(vec![
+                                c.quantity.to_string(),
+                                c.foil_quantity.to_string(),
+                                crate::output::truncate(&c.card.name, 34),
+                                c.card.set_code.to_uppercase(),
+                            ]);
+                        }
+                        println!("{t}");
                     }
-                    println!("{t}");
+                }
+                Some(PublicDeckCommand::Copy) => {
+                    let d: DeckDetail = ctx
+                        .client
+                        .post_json(&format!("{dbase}/copy"), serde_json::json!({}))
+                        .await?;
+                    if ctx.printer.json {
+                        ctx.printer.json(&d)?;
+                    } else {
+                        println!(
+                            "Copied '{}' into your decks as deck {} ({} cards, private).",
+                            d.name, d.id, d.summary.total_cards
+                        );
+                    }
                 }
             }
-            Some(PublicDeckCommand::Copy) => {
-                let d: DeckDetail = ctx
-                    .client
-                    .post_json(
-                        &format!("/api/u/{handle}/decks/{deck_id}/copy"),
-                        serde_json::json!({}),
-                    )
-                    .await?;
-                if ctx.printer.json {
-                    ctx.printer.json(&d)?;
-                } else {
-                    println!(
-                        "Copied '{}' into your decks as deck {} ({} cards, private).",
-                        d.name, d.id, d.summary.total_cards
-                    );
-                }
-            }
-        },
+        }
     }
     Ok(())
 }
@@ -295,14 +301,10 @@ fn print_shared_games(label: &str, games: &[PublicGameSummary]) {
 async fn run_holdings(ctx: &Ctx, s: &Surface, command: PublicHoldingsCommand) -> Result<()> {
     match command {
         PublicHoldingsCommand::List {
-            query,
-            set,
-            related,
-            sort,
-            dir,
+            filter,
             page,
             page_size,
-        } => holdings::list(ctx, s, query, set, related, sort, dir, page, page_size).await,
+        } => holdings::list(ctx, s, filter, page, page_size).await,
         PublicHoldingsCommand::Summary {
             set,
             related,
@@ -312,15 +314,17 @@ async fn run_holdings(ctx: &Ctx, s: &Surface, command: PublicHoldingsCommand) ->
         PublicHoldingsCommand::Drops {
             code,
             query,
+            copies,
             page,
             page_size,
-        } => holdings::set_drops(ctx, s, &code, query, page, page_size).await,
+        } => holdings::set_drops(ctx, s, &code, query, copies, page, page_size).await,
         PublicHoldingsCommand::Subtypes {
             code,
             query,
+            copies,
             page,
             page_size,
-        } => holdings::set_subtypes(ctx, s, &code, query, page, page_size).await,
+        } => holdings::set_subtypes(ctx, s, &code, query, copies, page, page_size).await,
         PublicHoldingsCommand::Owned { ids } => holdings::batch_counts(ctx, s, ids).await,
         PublicHoldingsCommand::Products { command } => match command {
             PublicProductsCommand::List {

@@ -352,6 +352,238 @@ pub struct ProductContainer {
 }
 
 // ---------------------------------------------------------------------------
+// Combos, sealed expected value / openings, and the release calendar
+// ---------------------------------------------------------------------------
+
+/// One card a combo needs, as the card page lists it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComboPiece {
+    /// The card's gameplay identity (Scryfall `oracle_id`).
+    pub oracle_id: String,
+    pub name: String,
+    /// Copies the combo needs.
+    pub quantity: i64,
+    /// Whether it has to be in the command zone.
+    pub must_be_commander: bool,
+    /// A catalog printing to look up — the newest the catalog holds; null when it
+    /// holds none (a spoiler, a card set not imported yet).
+    #[serde(default)]
+    pub card_id: Option<String>,
+}
+
+/// One Commander Spellbook combo the viewed card is a piece of. Everything here is
+/// the data source's own datum — `url` is the page it came from, the link the
+/// source's terms ask for.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CardCombo {
+    /// Commander Spellbook's variant id (`"245-2034-6705"`).
+    pub id: String,
+    /// The combo's page on Commander Spellbook.
+    pub url: String,
+    /// Colour identity letters in WUBRG order; empty for colourless.
+    #[serde(default)]
+    pub identity: Vec<String>,
+    /// The step-by-step description.
+    pub description: String,
+    /// Upstream's popularity counter — higher is more played.
+    pub popularity: i64,
+    /// Wildcard requirements the app can't evaluate ("A free sacrifice outlet").
+    #[serde(default)]
+    pub templates: Vec<String>,
+    /// What it produces — the results a player cares about, by name.
+    #[serde(default)]
+    pub produces: Vec<String>,
+    /// Upstream's bracket tag (`"C"` casual, `"R"` ruthless, …); null when unset.
+    #[serde(default)]
+    pub bracket_tag: Option<String>,
+    /// Mana to start it, Scryfall-style (`"{6}"`); null when none is needed.
+    #[serde(default)]
+    pub mana_needed: Option<String>,
+    #[serde(default)]
+    pub mana_value_needed: Option<i64>,
+    /// Prerequisites beyond the pieces themselves; null when none.
+    #[serde(default)]
+    pub prerequisites: Option<String>,
+    /// Every piece, in the combo's own order — the viewed card included.
+    #[serde(default)]
+    pub pieces: Vec<ComboPiece>,
+}
+
+/// The combos a card is a piece of, most-played first.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CardCombos {
+    /// At most 50, by popularity; `total` is exact.
+    #[serde(default)]
+    pub combos: Vec<CardCombo>,
+    pub total: i64,
+    /// Where the data comes from, for the attribution the source asks for.
+    pub source: String,
+    pub source_url: String,
+}
+
+/// One card's odds inside a booster: how often it shows up, and what that is worth.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PackCardOdds {
+    pub card: Card,
+    pub foil: bool,
+    /// The print sheet it comes off.
+    pub sheet: String,
+    /// Expected copies per pack.
+    pub expected_per_pack: f64,
+    /// One in this many packs holds it.
+    pub one_in: f64,
+    pub price_usd: Option<String>,
+    /// 2-dp USD this card contributes — per pack inside a pack or slot, per copy of
+    /// the product in the product-wide list.
+    pub contribution_usd: String,
+}
+
+/// One slot of a booster: a print sheet picked from some number of times.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SlotEv {
+    pub sheet: String,
+    pub foil: bool,
+    /// Average picks off this sheet per pack.
+    pub picks: f64,
+    /// Distinct cards on the sheet.
+    pub card_count: i64,
+    pub ev_usd: String,
+    /// Share of the sheet's weight that carries a price (0..=1).
+    pub priced_share: f64,
+    #[serde(default)]
+    pub top: Vec<PackCardOdds>,
+}
+
+/// One distinct booster a copy of the product opens.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PackEv {
+    pub booster_code: String,
+    #[serde(default)]
+    pub name: Option<String>,
+    pub set_code: String,
+    /// How many of this booster one copy of the product holds.
+    pub quantity: i64,
+    pub cards_per_pack: f64,
+    pub ev_usd: String,
+    /// Share of the pack's contents that carries a price (0..=1).
+    pub priced_share: f64,
+    #[serde(default)]
+    pub slots: Vec<SlotEv>,
+    #[serde(default)]
+    pub top: Vec<PackCardOdds>,
+}
+
+/// The expected value of **one copy** of a sealed product at today's prices — an
+/// average over many openings, never a valuation of the copy in front of you.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProductEv {
+    /// 2-dp USD, summed before rounding — so it can differ by a cent from adding up
+    /// the rendered per-pack figures.
+    pub ev_usd: String,
+    /// Every distinct booster one copy opens, with how many of each.
+    #[serde(default)]
+    pub packs: Vec<PackEv>,
+    /// The biggest expected contributors across the whole copy (at most 12).
+    #[serde(default)]
+    pub top: Vec<PackCardOdds>,
+    /// What qualifies these numbers, generated server-side.
+    #[serde(default)]
+    pub caveats: Vec<String>,
+}
+
+/// One card a simulated opening dealt.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpenedCard {
+    pub card: Card,
+    pub foil: bool,
+    /// The print sheet it came off.
+    pub sheet: String,
+    pub price_usd: Option<String>,
+}
+
+/// One pack of a simulated opening, with the configuration the dice rolled.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpenedPack {
+    pub booster_code: String,
+    #[serde(default)]
+    pub name: Option<String>,
+    pub set_code: String,
+    /// Which of the booster's configurations was rolled.
+    pub variant: i64,
+    /// 2-dp USD of the cards below (unpriced cards count as $0).
+    pub value_usd: String,
+    #[serde(default)]
+    pub cards: Vec<OpenedCard>,
+}
+
+/// One simulated opening: stateless, seeded, and a pure function of its URL — what
+/// this run of the dice dealt, never what the product is worth.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProductOpening {
+    /// The seed this opening was rolled with — echoed so a random one can be
+    /// replayed or shared.
+    pub seed: i64,
+    /// How many copies of the product were opened.
+    pub copies: i64,
+    /// Every pack, in opening order: copy by copy, then the product's pack order.
+    #[serde(default)]
+    pub packs: Vec<OpenedPack>,
+    /// 2-dp USD of everything pulled (unpriced cards count as $0).
+    pub value_usd: String,
+    /// Pulled cards that had a market price.
+    pub priced_count: i64,
+    /// Pulled cards that had none.
+    pub unpriced_count: i64,
+    /// What qualifies this run, generated server-side.
+    #[serde(default)]
+    pub caveats: Vec<String>,
+}
+
+/// A set releasing inside a window, with the precons and sealed products it ships.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SetRelease {
+    pub set: CardSet,
+    /// `YYYY-MM-DD`.
+    pub released_at: String,
+    /// Whether this is the Secret Lair set (its drops are listed separately).
+    pub secret_lair: bool,
+    #[serde(default)]
+    pub precons: Vec<PreconDeck>,
+    #[serde(default)]
+    pub products: Vec<Product>,
+}
+
+/// A Secret Lair drop whose cards release inside a window.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SecretLairDropRelease {
+    pub slug: String,
+    pub title: String,
+    pub set_code: String,
+    /// `YYYY-MM-DD`.
+    pub released_at: String,
+    #[serde(default)]
+    pub products: Vec<Product>,
+}
+
+/// The release calendar for a window: the sets releasing in it (each with what it
+/// ships) and the Secret Lair drops, both date-ascending.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Releases {
+    /// The window's first day (`YYYY-MM-DD`), inclusive — as resolved, so a
+    /// defaulted request learns what it was answered for.
+    pub from: String,
+    /// The window's last day (`YYYY-MM-DD`), inclusive.
+    pub to: String,
+    /// Sets releasing inside the window, date then code ascending.
+    #[serde(default)]
+    pub sets: Vec<SetRelease>,
+    /// Secret Lair drops with cards releasing inside the window, date then title
+    /// ascending. Always empty for a game without Secret Lair.
+    #[serde(default)]
+    pub secret_lair_drops: Vec<SecretLairDropRelease>,
+}
+
+// ---------------------------------------------------------------------------
 // Collection / wish list
 // ---------------------------------------------------------------------------
 
@@ -428,6 +660,65 @@ pub struct CollectionSubtypeGroup {
     pub title: String,
     pub card_count: i64,
     pub cards: Vec<CollectionEntry>,
+}
+
+// Breakdown ------------------------------------------------------------------
+
+/// Where a user's per-game holdings' value sits (the collection or the wish list —
+/// the wish-list twin reads "wanted" for "held"): copies + estimated value by
+/// rarity, colour identity, card type and finish, plus the top holdings. Cards
+/// only; sealed products have none of these facets.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CollectionBreakdown {
+    /// The same fold `…/summary` answers over the same rows, so every bucket below
+    /// is a slice of exactly this total.
+    pub summary: CollectionSummary,
+    /// By rarity, in rarity order (`unknown` last). Only non-empty buckets.
+    #[serde(default)]
+    pub rarity: Vec<BreakdownBucket>,
+    /// By colour identity: WUBRG, then `multicolor`, then `colorless`.
+    #[serde(default)]
+    pub color: Vec<BreakdownBucket>,
+    /// By the type line's first card type, most valuable bucket first.
+    #[serde(default)]
+    pub card_type: Vec<BreakdownBucket>,
+    /// By finish: `regular` then `foil`, each counting only that finish's copies.
+    #[serde(default)]
+    pub finish: Vec<BreakdownBucket>,
+    /// The most valuable holdings by held value, highest first (at most ten).
+    #[serde(default)]
+    pub top: Vec<TopHolding>,
+    /// Distinct held cards that contribute nothing to any value here because no
+    /// finish they're held in is priced — so a small total is tellable from an
+    /// unpriced one.
+    pub unpriced_cards: i64,
+}
+
+/// One bucket of a breakdown facet: how many distinct held cards and copies file
+/// under it, and what they are worth as held.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BreakdownBucket {
+    /// The bucket's stable key — a rarity, a colour-identity bucket, a card type,
+    /// or `regular`/`foil`.
+    pub key: String,
+    /// Distinct held cards in the bucket (one per holdings row).
+    pub cards: i64,
+    /// Held copies in the bucket (regular + foil — or, for a finish bucket, that
+    /// finish).
+    pub copies: i64,
+    /// A 2-dp decimal string; `None` when none of the bucket's copies is priced.
+    pub value_usd: Option<String>,
+}
+
+/// One of the most valuable holdings, ranked by **held** value (price × copies —
+/// never a single copy's price, which is the list's `sort=price`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TopHolding {
+    pub card: Card,
+    pub quantity: i64,
+    pub foil_quantity: i64,
+    /// The held value, a 2-dp decimal string (an unpriced holding never ranks).
+    pub value_usd: String,
 }
 
 // Movers ---------------------------------------------------------------------
@@ -566,6 +857,53 @@ pub struct ImportJob {
     pub summary: Option<ImportSummary>,
     #[serde(default)]
     pub error: Option<String>,
+}
+
+// Buy list -------------------------------------------------------------------
+
+/// One wanted card printing on a shopping list, as a store's bulk-entry page takes
+/// it: the counts plus the printing's TCGplayer product id where TCGplayer lists it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BuyListCard {
+    /// The printing's external (Scryfall) id.
+    pub card_id: String,
+    pub name: String,
+    pub set_code: String,
+    pub collector_number: String,
+    /// Regular copies wanted.
+    pub quantity: i64,
+    /// Foil copies wanted.
+    pub foil_quantity: i64,
+    /// TCGplayer product id of the printing; `None` when TCGplayer doesn't list it.
+    #[serde(default)]
+    pub tcgplayer_id: Option<i64>,
+}
+
+/// One wanted sealed product on a shopping list (its external id is its TCGplayer
+/// product id).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BuyListProduct {
+    pub product_id: String,
+    pub name: String,
+    pub quantity: i64,
+    pub foil_quantity: i64,
+}
+
+/// A shopping list as bulk-buy rows — the wish list's (`GET /api/wishlist/{game}/
+/// buy-list`) and the decks' (`GET /api/decks/{game}/needed/buy-list`) share the
+/// shape. Card rows are capped at 500; `truncated` + the totals say what was cut.
+/// Sealed products ride only on an unfiltered wish-list request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BuyList {
+    pub cards: Vec<BuyListCard>,
+    #[serde(default)]
+    pub products: Vec<BuyListProduct>,
+    /// Card rows the filters matched, including any beyond the cap.
+    pub total_cards: i64,
+    /// Sealed-product rows (`0` when the request was filtered).
+    pub total_products: i64,
+    /// Whether either list was cut at the cap.
+    pub truncated: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -884,6 +1222,9 @@ pub struct NeededCardDeck {
 }
 
 /// A card the caller's decks collectively want more copies of than they own.
+/// Scoped to one deck (`?deck_id=`), `required` is what *that* deck wants and
+/// `needed` is its share of the shortfall across **all** the caller's decks, so two
+/// decks sharing one owned copy are each told they still need one.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NeededCard {
     pub card: Card,
@@ -894,6 +1235,48 @@ pub struct NeededCard {
     /// Shortfall (`required - owned`, floored at zero).
     pub needed: i64,
     pub decks: Vec<NeededCardDeck>,
+    /// What the `needed` copies cost **at the printings and finishes the decks
+    /// hold**; null when no held finish of the card is priced — never `"0.00"`.
+    #[serde(default)]
+    pub held_usd: Option<String>,
+    /// What they cost at the card's **cheapest printing** anywhere in the catalog;
+    /// null when no printing of it is priced.
+    #[serde(default)]
+    pub cheapest_usd: Option<String>,
+}
+
+/// The money and the size of a shopping list, folded once so "12 cards, ~$41" needs
+/// no re-summing of the lines.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NeededTotals {
+    /// Distinct entries in the list.
+    pub cards: i64,
+    /// Copies to acquire: the sum of every entry's `needed`.
+    pub copies: i64,
+    /// The sum of every entry's `held_usd`; null when no entry is priced that way.
+    /// While `held_unpriced_cards` is non-zero this is a floor.
+    #[serde(default)]
+    pub held_usd: Option<String>,
+    /// Entries whose `held_usd` is null.
+    pub held_unpriced_cards: i64,
+    /// The sum of every entry's `cheapest_usd`; null when no entry has a priced
+    /// printing at all. While `cheapest_unpriced_cards` is non-zero this is a floor.
+    #[serde(default)]
+    pub cheapest_usd: Option<String>,
+    /// Entries whose `cheapest_usd` is null.
+    pub cheapest_unpriced_cards: i64,
+}
+
+/// The deck shopping list: the shortfalls, the deck it was scoped to (if any), and
+/// the totals.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NeededList {
+    /// The shortfalls, by card name.
+    pub data: Vec<NeededCard>,
+    /// The deck the list was scoped to (`--deck`), or null for the game-wide list.
+    #[serde(default)]
+    pub deck: Option<NeededCardDeck>,
+    pub totals: NeededTotals,
 }
 
 // Card → decks, deck → tokens ------------------------------------------------
@@ -964,6 +1347,463 @@ pub struct DeckTokens {
     /// Cards in the deck proper whose catalog row hasn't been checked for tokens
     /// yet; while non-zero the list is a floor, not the whole answer.
     pub unchecked_count: i64,
+}
+
+// Combos, mana base, pricing, roles -------------------------------------------
+
+/// One piece of a combo, judged against a deck.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeckComboPiece {
+    /// The card's gameplay identity (Scryfall `oracle_id`) — pieces match on this,
+    /// so any printing counts.
+    pub oracle_id: String,
+    pub name: String,
+    /// Copies the combo needs.
+    pub quantity: i64,
+    /// Whether it has to be in the command zone.
+    pub must_be_commander: bool,
+    /// Whether the deck proper holds the card at all (any zone, any number).
+    pub in_deck: bool,
+    /// A printing to link to: the deck's own where it holds the card, else the
+    /// catalog's newest; null when the catalog holds none.
+    #[serde(default)]
+    pub card_id: Option<String>,
+}
+
+/// One thing a combo still needs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeckComboMissing {
+    /// The card's or template's name.
+    pub name: String,
+    /// Why it's missing: `card` | `template` | `commander`.
+    pub kind: String,
+    #[serde(default)]
+    pub card_id: Option<String>,
+}
+
+/// One Commander Spellbook combo against a deck — the source's own datum (the
+/// wire's `ComboSummary`) flattened together with what this deck has and lacks.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeckCombo {
+    /// Commander Spellbook's variant id (`"245-2034-6705"`).
+    pub id: String,
+    /// The combo's page on Commander Spellbook — the link the source's terms ask for.
+    pub url: String,
+    /// Colour identity letters in WUBRG order; empty for colourless.
+    #[serde(default)]
+    pub identity: Vec<String>,
+    /// The step-by-step description.
+    pub description: String,
+    /// Upstream's popularity counter — higher is more played.
+    pub popularity: i64,
+    /// Wildcard requirements the app can't evaluate ("A free sacrifice outlet").
+    #[serde(default)]
+    pub templates: Vec<String>,
+    /// What it produces — the results a player cares about, by name.
+    #[serde(default)]
+    pub produces: Vec<String>,
+    /// Upstream's bracket tag (`"C"` casual, `"R"` ruthless, …); null when unset.
+    #[serde(default)]
+    pub bracket_tag: Option<String>,
+    /// Mana to start it, Scryfall-style (`"{6}"`); null when none is needed.
+    #[serde(default)]
+    pub mana_needed: Option<String>,
+    #[serde(default)]
+    pub mana_value_needed: Option<i64>,
+    /// Prerequisites beyond the pieces themselves; null when none.
+    #[serde(default)]
+    pub prerequisites: Option<String>,
+    /// Every piece, in the combo's own order.
+    #[serde(default)]
+    pub pieces: Vec<DeckComboPiece>,
+    /// What the deck still needs — empty for a combo it can assemble.
+    #[serde(default)]
+    pub missing: Vec<DeckComboMissing>,
+}
+
+/// Everything a deck's combo read says.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeckCombos {
+    /// Combos the deck proper can assemble: fewest pieces first, then most-played.
+    /// Capped upstream — `combo_count` is exact.
+    pub combos: Vec<DeckCombo>,
+    pub combo_count: i64,
+    /// Combos exactly one card (or template, or commander swap) away, most-played
+    /// first. Capped upstream — `almost_count` is exact.
+    pub almost: Vec<DeckCombo>,
+    pub almost_count: i64,
+    /// Whether any combo data is present at all. `false` means the dataset hasn't
+    /// been synced — an empty `combos` is then "unknown", never "none".
+    pub available: bool,
+    /// Where the data comes from, for the attribution the source asks for.
+    pub source: String,
+    pub source_url: String,
+}
+
+/// One spell counted against a colour — a card whose cost holds hard pips of it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeckManaDemandCard {
+    pub card_id: String,
+    pub name: String,
+    /// Copies of that name across the deck it's cast from.
+    pub quantity: i64,
+    /// The cost as read — the front half of a split card.
+    pub mana_cost: String,
+    /// Pips of this colour in that cost.
+    pub pips: i64,
+    /// The mana value of that cost — the turn the spell is meant to be cast on.
+    pub turn: i64,
+    /// The table row this spell was judged as (`"1CC"`), after clamping.
+    pub cost_key: String,
+    /// Whether the cost also holds hard pips of another colour, which adds one to
+    /// the requirement (Karsten's gold-card rule).
+    pub gold: bool,
+    /// Sources of this colour a deck this size needs to cast it on curve.
+    pub sources_needed: i64,
+    /// Whether the cost holds an `{X}` — listed, but never allowed to set the
+    /// colour's requirement.
+    pub x_cost: bool,
+    /// Whether the spell had to be clamped onto the table to be judged at all —
+    /// then `cost_key` is not the cost's own row.
+    pub clamped: bool,
+}
+
+/// One card in the library that produces a colour.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeckManaSource {
+    pub card_id: String,
+    pub name: String,
+    /// Copies of that name in the library — each one is one source.
+    pub quantity: i64,
+    /// Whether the card is a land; a nonland producer counts the same here, and the
+    /// split is reported so a reader can weigh it.
+    pub land: bool,
+}
+
+/// One colour's ledger: what the deck asks for, what the library gives, the verdict.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeckManaColor {
+    /// `W` / `U` / `B` / `R` / `G` / `C`.
+    pub color: String,
+    /// `"White"`, …, `"Colorless"`.
+    pub label: String,
+    /// Hard pips of this colour across the deck it's cast from, copy-weighted.
+    pub pips: i64,
+    /// Pips this colour *could* pay (hybrid, twobrid, Phyrexian) — reported, never
+    /// counted against the colour.
+    pub hybrid_pips: i64,
+    /// Distinct card names with a hard pip of this colour.
+    pub demand_count: i64,
+    /// Those cards, most demanding first, capped upstream.
+    #[serde(default)]
+    pub demand: Vec<DeckManaDemandCard>,
+    /// Sources in the library, copy-weighted: lands and nonland producers alike.
+    pub sources: i64,
+    pub land_sources: i64,
+    pub nonland_sources: i64,
+    /// Distinct card names producing this colour.
+    pub source_count: i64,
+    /// Those cards, lands first, capped upstream.
+    #[serde(default)]
+    pub source_cards: Vec<DeckManaSource>,
+    /// Sources the most demanding spell needs, or null when nothing demands the
+    /// colour.
+    #[serde(default)]
+    pub sources_needed: Option<i64>,
+    /// `max(0, sources_needed - sources)`.
+    pub shortfall: i64,
+    /// `enough` | `short` | `no_demand` | `undecided`.
+    pub status: String,
+    /// One ready-to-render sentence ("Short 2 black sources").
+    pub verdict: String,
+}
+
+/// A deck's colour requirements against its sources, judged with Frank Karsten's
+/// 2022 tables. Demand is the library plus the command zone; supply is the library.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeckManaBase {
+    /// Copies in the deck the spells are cast from: the library plus the command zone.
+    pub deck_size: i64,
+    /// The table column the deck was judged against: 40, 60, 80 or 99.
+    pub table_size: i64,
+    /// Copies in the library — the sources' pool.
+    pub library_size: i64,
+    /// Land copies in the library.
+    pub land_count: i64,
+    /// One ledger per colour the deck demands or produces, WUBRG-then-colourless.
+    pub colors: Vec<DeckManaColor>,
+    /// Distinct library cards whose catalog row hasn't been checked for what it
+    /// produces; while non-zero every source count is a floor.
+    pub unchecked_count: i64,
+    /// What the numbers assume. Never empty — a threshold is only honest beside
+    /// its model.
+    pub caveats: Vec<String>,
+    /// Where the thresholds come from.
+    pub source: String,
+}
+
+/// The cheapest printing of one pricing line's card, held the way the line is held.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeckCheapestPrinting {
+    /// The printing — its `id` is what the printing swap takes.
+    pub card: Card,
+    /// What the line would cost as this printing (2-dp USD). Always priced.
+    pub price_usd: String,
+}
+
+/// One deck row — a printing in a section — priced.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeckPricingLine {
+    /// The printing the deck holds.
+    pub card: Card,
+    /// The section it sits in — the same printing in two sections is two rows.
+    pub section_id: i64,
+    pub quantity: i64,
+    pub foil_quantity: i64,
+    /// What the row is worth as held; null when no finish it holds copies of is
+    /// priced — never `"0.00"`.
+    #[serde(default)]
+    pub price_usd: Option<String>,
+    /// The cheapest priced printing at this row's finish split, or null when no
+    /// printing of it is priced in every finish the row holds.
+    #[serde(default)]
+    pub cheapest: Option<DeckCheapestPrinting>,
+    /// `price_usd` minus `cheapest.price_usd`; `"0.00"` when the row already holds
+    /// the cheapest printing, null when either side is unknown.
+    #[serde(default)]
+    pub saving_usd: Option<String>,
+}
+
+/// The deck's money, line by line.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeckPricing {
+    /// Every row of the deck proper, most expensive first (unpriced rows last).
+    /// Maybeboard rows are not listed.
+    pub lines: Vec<DeckPricingLine>,
+    /// The deck's value as held — identical to the detail's `summary.total_value_usd`;
+    /// null when nothing in the deck is priced.
+    #[serde(default)]
+    pub total_usd: Option<String>,
+    /// The value if every line with a known saving were swapped to its cheapest
+    /// printing; null whenever `total_usd` is.
+    #[serde(default)]
+    pub cheapest_total_usd: Option<String>,
+    /// The sum of every line's known saving; null whenever `total_usd` is.
+    #[serde(default)]
+    pub saving_usd: Option<String>,
+    /// Rows whose held printing has no price in either finish — while non-zero,
+    /// `total_usd` is a floor.
+    pub unpriced_count: i64,
+    /// Rows a swap would save money on — what "swap all" would touch.
+    pub swappable_count: i64,
+}
+
+/// One card counted towards a deckbuilding role.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeckRoleCard {
+    pub card_id: String,
+    pub name: String,
+    /// Copies of that name across the deck proper.
+    pub quantity: i64,
+}
+
+/// What a deck holds in one role. `role` stays a plain string, so a role the API
+/// grows still renders.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeckRoleGroup {
+    /// `ramp` | `card_draw` | `removal` | `board_wipe` | `counterspell` | `tutor` |
+    /// `recursion` | `protection`.
+    pub role: String,
+    pub label: String,
+    /// What the role counts, and the near-miss it deliberately doesn't.
+    pub description: String,
+    /// Distinct card **names** in this role — a card held in two arts counts once.
+    pub count: i64,
+    /// Copies (regular + foil) across those names.
+    pub copies: i64,
+    /// The matched cards in the deck's own order, capped upstream (`count` stays
+    /// exact).
+    #[serde(default)]
+    pub cards: Vec<DeckRoleCard>,
+}
+
+/// How many pieces of each deckbuilding role a deck holds, read off rules text over
+/// the deck proper. The roles aren't a partition — a card may fill several, and
+/// most creatures and every land fill none.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeckRoles {
+    /// Every role, in a stable order, whether or not the deck holds any.
+    pub roles: Vec<DeckRoleGroup>,
+    /// The roles each printing fills, keyed by external card id. **Maybeboards are
+    /// in this map** although they're out of every count above.
+    #[serde(default)]
+    pub card_roles: BTreeMap<String, Vec<String>>,
+    /// Distinct card names in the deck proper.
+    pub card_count: i64,
+    /// Distinct card names that matched no role.
+    pub unclassified_count: i64,
+}
+
+// Suggestions, diff, add-to-collection ----------------------------------------
+
+/// One owned card the deck could play.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeckSuggestionCard {
+    /// One printing the caller owns — the lowest catalog id among those held.
+    pub card: Card,
+    /// EDHREC's global popularity rank (1 = most played) — the sort key.
+    pub edhrec_rank: i64,
+    /// Copies owned across every printing (regular + foil).
+    pub owned: i64,
+    /// The roles the card fills; empty for a card the grammar can't place.
+    #[serde(default)]
+    pub roles: Vec<String>,
+}
+
+/// What the collection could add to the deck in one role, beside what it holds.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeckSuggestionRole {
+    pub role: String,
+    pub label: String,
+    /// What the role counts — the roles read's own wording.
+    pub description: String,
+    /// Distinct cards in the deck proper already filling this role.
+    pub in_deck: i64,
+    /// Scanned candidates filling this role.
+    pub count: i64,
+    /// Those candidates by external card id into [`DeckSuggestions::cards`], most
+    /// popular first, capped upstream (`count` stays exact).
+    #[serde(default)]
+    pub card_ids: Vec<String>,
+}
+
+/// Cards in the caller's collection this deck could play: legal in its format,
+/// inside its colour identity, not already in it — ranked by EDHREC's **global**
+/// popularity (not per-commander synergy, as the caveats say) and grouped by role.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeckSuggestions {
+    /// The command-zone cards whose identity the filter used; empty when the
+    /// colours are a union over the deck proper.
+    #[serde(default)]
+    pub commanders: Vec<DeckCommander>,
+    /// The identity candidates had to fit inside; `[]` is colourless and null means
+    /// there was nothing to read a colour off — then no colour filter applied.
+    #[serde(default)]
+    pub color_identity: Option<Vec<String>>,
+    /// The legality key the deck's format normalised to, or null when the format
+    /// isn't a tracked one — then no legality filter applied.
+    #[serde(default)]
+    pub format_key: Option<String>,
+    #[serde(default)]
+    pub format_label: Option<String>,
+    /// Owned cards (by gameplay identity) that passed every filter — exact.
+    pub candidate_count: i64,
+    /// How many of those were loaded and classified; equal to `candidate_count`
+    /// unless it exceeded the scan cap.
+    pub scanned_count: i64,
+    /// Every card `top` or a role names, once each — the pool the id lists below
+    /// index into.
+    pub cards: Vec<DeckSuggestionCard>,
+    /// The most popular candidates overall, by external card id into `cards`.
+    #[serde(default)]
+    pub top: Vec<String>,
+    /// Every role, in the roles read's order, whether or not any candidate fills it.
+    pub roles: Vec<DeckSuggestionRole>,
+    /// Scanned candidates filling no role.
+    pub unclassified_count: i64,
+    /// What the ranking is and isn't. Never empty.
+    pub caveats: Vec<String>,
+}
+
+/// One side of a deck comparison, named so the two columns can be captioned.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeckDiffSide {
+    pub id: i64,
+    pub name: String,
+    #[serde(default)]
+    pub format: Option<String>,
+    /// Copies in the deck proper.
+    pub total_cards: i64,
+}
+
+/// Counts of cards (names, not rows) per kind of change, over the deck-wide fold.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeckDiffSummary {
+    pub added: i64,
+    pub removed: i64,
+    pub changed: i64,
+    pub finish_changed: i64,
+    pub unchanged: i64,
+}
+
+/// One card that differs, folded across every printing of it and both finishes.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeckDiffEntry {
+    /// A printing of the card, for the row and the link.
+    pub card: Card,
+    /// The fold key — the card's name, shared by every printing of it.
+    pub name: String,
+    /// `added` | `removed` | `changed` | `finish` (only the foil split differs).
+    pub change: String,
+    /// Copies in the base deck: regular + foil, every printing. `0` when added.
+    pub base_quantity: i64,
+    /// Copies in the other deck, on the same grain. `0` when removed.
+    pub other_quantity: i64,
+    /// `other_quantity - base_quantity`: positive when the other deck plays more.
+    pub delta: i64,
+    /// Foil copies in the base deck, every printing.
+    pub base_foil_quantity: i64,
+    /// Foil copies in the other deck, every printing.
+    pub other_foil_quantity: i64,
+}
+
+/// The differences within one section, matched between the two decks by **name**.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeckDiffSection {
+    pub name: String,
+    /// Whether the section sits outside the deck proper.
+    pub is_maybeboard: bool,
+    /// The base deck's section id, or null when only the other deck has it.
+    #[serde(default)]
+    pub base_section_id: Option<i64>,
+    /// The other deck's section id, or null when only the base deck has it.
+    #[serde(default)]
+    pub other_section_id: Option<i64>,
+    /// The cards that differ here — never empty, a quiet section isn't listed.
+    pub entries: Vec<DeckDiffEntry>,
+    /// Cards held identically (same copies, same finishes) in both decks' copy of
+    /// this section.
+    pub unchanged: i64,
+}
+
+/// Everything two of the caller's decks disagree on. Cards are folded by **name**
+/// across every printing and both finishes, so a printing swap is not a change and
+/// a split playset is one card.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeckDiff {
+    pub base: DeckDiffSide,
+    pub other: DeckDiffSide,
+    /// Card counts per kind of change, over `cards`.
+    pub summary: DeckDiffSummary,
+    /// The deck-wide fold over the deck proper, section-agnostic: a card moved
+    /// between sections nets to nothing here.
+    pub cards: Vec<DeckDiffEntry>,
+    /// The per-section view; a section with nothing to report isn't listed.
+    pub sections: Vec<DeckDiffSection>,
+}
+
+/// What an add-to-collection did. Deliberately not an import summary: the rows come
+/// from the catalog, so the only way one fails to land is its card having left it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CollectionAdd {
+    /// Distinct printings whose owned counts went up.
+    pub cards: i64,
+    /// Regular copies added on top of what was already owned.
+    pub regular_copies: i64,
+    /// Foil copies added on top of what was already owned.
+    pub foil_copies: i64,
+    /// Distinct cards that couldn't be added — no longer in the catalog.
+    pub skipped_cards: i64,
 }
 
 // ---------------------------------------------------------------------------

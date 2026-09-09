@@ -7,7 +7,7 @@ use std::time::Duration;
 use anyhow::{Result, bail};
 use clap::{Args, Subcommand, ValueEnum};
 
-use super::holdings::{self, ProductHoldingCommand, Surface};
+use super::holdings::{self, CopyFilter, ListFilter, ProductHoldingCommand, Surface};
 use super::push_opt;
 use super::{CardExportFormat, Ctx};
 use crate::models::*;
@@ -24,16 +24,8 @@ pub struct CollectionArgs {
 pub enum CollectionCommand {
     /// List owned cards.
     List {
-        #[arg(short = 'q', long)]
-        query: Option<String>,
-        #[arg(long)]
-        set: Option<String>,
-        #[arg(long)]
-        related: bool,
-        #[arg(long)]
-        sort: Option<String>,
-        #[arg(long)]
-        dir: Option<String>,
+        #[command(flatten)]
+        filter: ListFilter,
         #[arg(long)]
         page: Option<u32>,
         #[arg(long)]
@@ -73,11 +65,22 @@ pub enum CollectionCommand {
         #[arg(long, value_name = "CENTS")]
         bulk_max: Option<i64>,
     },
+    /// Where the collection's value sits: copies + value by rarity, colour, card
+    /// type and finish, plus the most valuable holdings.
+    Breakdown {
+        /// Per-unit bulk price cutoff in USD cents (default $1) — splits the bulk
+        /// subtotal out of the embedded summary's total.
+        #[arg(long, value_name = "CENTS")]
+        bulk_max: Option<i64>,
+    },
     /// Owned cards in a drop-grouped set, grouped by drop.
     Drops {
         code: String,
+        /// Scryfall-style search filter within the set.
         #[arg(short = 'q', long)]
         query: Option<String>,
+        #[command(flatten)]
+        copies: CopyFilter,
         #[arg(long)]
         page: Option<u32>,
         #[arg(long)]
@@ -86,8 +89,11 @@ pub enum CollectionCommand {
     /// Owned cards in a set, grouped by sub-type.
     Subtypes {
         code: String,
+        /// Scryfall-style search filter within the set.
         #[arg(short = 'q', long)]
         query: Option<String>,
+        #[command(flatten)]
+        copies: CopyFilter,
         #[arg(long)]
         page: Option<u32>,
         #[arg(long)]
@@ -149,16 +155,8 @@ pub enum CollectionCommand {
     /// Export an owned-card search as a `.txt` deck-list (the same filters as
     /// `list`), carrying the real owned counts.
     ExportCards {
-        #[arg(short = 'q', long)]
-        query: Option<String>,
-        #[arg(long)]
-        set: Option<String>,
-        #[arg(long)]
-        related: bool,
-        #[arg(long)]
-        sort: Option<String>,
-        #[arg(long)]
-        dir: Option<String>,
+        #[command(flatten)]
+        filter: ListFilter,
         #[arg(long, value_enum, default_value_t = CardExportFormat::Text)]
         format: CardExportFormat,
         #[arg(short, long)]
@@ -247,14 +245,10 @@ pub async fn run(ctx: &Ctx, args: CollectionArgs) -> Result<()> {
     };
     match args.command {
         CollectionCommand::List {
-            query,
-            set,
-            related,
-            sort,
-            dir,
+            filter,
             page,
             page_size,
-        } => holdings::list(ctx, &s, query, set, related, sort, dir, page, page_size).await,
+        } => holdings::list(ctx, &s, filter, page, page_size).await,
         CollectionCommand::Get { card_id } => holdings::get(ctx, &s, &card_id).await,
         CollectionCommand::Set { card_id, qty, foil } => {
             holdings::set(ctx, &s, &card_id, qty, foil).await
@@ -267,18 +261,21 @@ pub async fn run(ctx: &Ctx, args: CollectionArgs) -> Result<()> {
             holdings::summary(ctx, &s, set, related, None).await
         }
         CollectionCommand::Sets { bulk_max } => holdings::sets(ctx, &s, bulk_max).await,
+        CollectionCommand::Breakdown { bulk_max } => holdings::breakdown(ctx, &s, bulk_max).await,
         CollectionCommand::Drops {
             code,
             query,
+            copies,
             page,
             page_size,
-        } => holdings::set_drops(ctx, &s, &code, query, page, page_size).await,
+        } => holdings::set_drops(ctx, &s, &code, query, copies, page, page_size).await,
         CollectionCommand::Subtypes {
             code,
             query,
+            copies,
             page,
             page_size,
-        } => holdings::set_subtypes(ctx, &s, &code, query, page, page_size).await,
+        } => holdings::set_subtypes(ctx, &s, &code, query, copies, page, page_size).await,
         CollectionCommand::Owned { ids } => holdings::batch_counts(ctx, &s, ids).await,
         CollectionCommand::Movers { window } => movers(ctx, &s, window).await,
         CollectionCommand::ValueHistory { range } => value_history(ctx, &s, range).await,
@@ -302,14 +299,10 @@ pub async fn run(ctx: &Ctx, args: CollectionArgs) -> Result<()> {
         }
         CollectionCommand::Export { format, output } => export(ctx, &s, format, output).await,
         CollectionCommand::ExportCards {
-            query,
-            set,
-            related,
-            sort,
-            dir,
+            filter,
             format,
             output,
-        } => holdings::export_cards(ctx, &s, query, set, related, sort, dir, format, output).await,
+        } => holdings::export_cards(ctx, &s, filter, format, output).await,
         CollectionCommand::Visibility { command } => visibility(ctx, &s, command).await,
         CollectionCommand::Products { command } => holdings::products(ctx, &s, command).await,
     }

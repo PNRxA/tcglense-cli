@@ -76,6 +76,9 @@ pub enum Command {
     Sets(catalog::SetsArgs),
     /// Show one set (optionally its cards / drops / sub-types).
     Set(catalog::SetArgs),
+    /// Show the release calendar: sets landing in a window (with what they ship)
+    /// and the Secret Lair drops.
+    Releases(catalog::ReleasesArgs),
     /// Search a game's cards (Scryfall-style `-q` query).
     Cards(catalog::CardsArgs),
     /// Show one card's full detail.
@@ -94,6 +97,8 @@ pub enum Command {
     Sealed(catalog::SealedArgs),
     /// Show a card's official rulings (oldest first).
     Rulings(catalog::RulingsArgs),
+    /// Show the Commander Spellbook combos a card is a piece of (most-played first).
+    Combos(catalog::CombosArgs),
     /// Identify a card from a 256-bit perceptual-hash fingerprint (auth required).
     Scan(catalog::ScanArgs),
     /// Browse sealed products.

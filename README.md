@@ -130,17 +130,22 @@ tcglense games
 tcglense sets mtg
 tcglense set mtg blb --cards -q 't:creature c:g' --sort price --dir desc
 tcglense set mtg sld --drops --drop 'happy'          # Secret Lair drops, filtered by title
+tcglense releases mtg --from 2026-10-01 --to 2026-12-31   # what lands in a window, with what it ships
 tcglense cards mtg -q 'lightning bolt' --sort price --dir desc
+tcglense cards mtg -q 'kw:flying' --preview --limit 8     # first rows only, no (expensive) total
 tcglense search mtg 'sol ring'                      # cards, products, precons + keywords by name
 tcglense card mtg <card-id>                          # detail, incl. per-format legality
 tcglense prices mtg <card-id> --range 1y
 tcglense prints mtg <card-id>
 tcglense rulings mtg <card-id>
+tcglense combos mtg <card-id>                        # the Commander Spellbook combos it's a piece of
 tcglense sealed mtg <card-id>
 tcglense products mtg --set blb --sort price --dir desc
 tcglense product mtg <product-id> contents
 tcglense product mtg <product-id> cards -q 't:creature' --sort price --dir desc
 tcglense product mtg <product-id> cards --component <name>   # one unlisted box component (see `sections`)
+tcglense product mtg <product-id> ev                  # expected value of one copy, per booster + sheet
+tcglense product mtg <product-id> open --seed 42 --copies 2   # simulated opening (same seed, same packs)
 tcglense precons mtg list --type 'Commander Deck'     # decklists that ship with the sets
 tcglense precons mtg groups --group set --set tmc     # bucketed by set (or by --group type)
 tcglense precons mtg facets                           # the deck types + sets that have precons
@@ -148,8 +153,12 @@ tcglense precons mtg show turtle-power-tmc            # header, value, every car
 tcglense precons mtg bracket turtle-power-tmc         # estimated Commander bracket (1–5)
 tcglense precons mtg goldfish turtle-power-tmc --seed 42
 tcglense precons mtg tokens turtle-power-tmc          # the tokens + emblems the decklist makes
+tcglense precons mtg combos turtle-power-tmc          # combos it assembles, and near-misses
+tcglense precons mtg mana turtle-power-tmc            # colour requirements vs. its sources
+tcglense precons mtg roles turtle-power-tmc           # ramp / draw / removal / wipes / …
 tcglense precons mtg containing <card-id>            # the precons that include a card
 tcglense precons mtg copy turtle-power-tmc            # clone it into your decks (auth required)
+tcglense precons mtg add-to-collection turtle-power-tmc   # record the cards you just bought
 tcglense keywords mtg --full                         # the rules glossary
 tcglense formats mtg --popular                       # formats legality is tracked for
 tcglense art-tags mtg -q squirrel                    # tags the `art:` filter matches
@@ -160,6 +169,8 @@ tcglense export set mtg blb --format names
 # Collection (auth required)
 tcglense collection mtg summary
 tcglense collection mtg list -q 'is:foil'
+tcglense collection mtg list --min-copies 4 --finish regular   # playsets you own in paper-regular
+tcglense collection mtg breakdown                    # value by rarity/colour/type/finish + top ten
 tcglense collection mtg set <card-id> --qty 4 --foil 1
 tcglense collection mtg add <card-id> --qty 1
 tcglense collection mtg import --provider archidekt --source <url> --mode merge
@@ -173,6 +184,9 @@ tcglense collection mtg products list
 # Wish list (mirrors the collection card ops)
 tcglense wishlist mtg set <card-id> --qty 1
 tcglense wishlist mtg export-cards -o shopping-list.txt
+tcglense wishlist mtg buy-list --set blb             # bulk-buy rows with TCGplayer product ids
+tcglense wishlist mtg buy-list --json                # unfiltered: the whole list, sealed included
+tcglense wishlist mtg breakdown                      # what the wants are worth, by facet
 tcglense wishlist mtg visibility set true            # share your wish list publicly
 
 # Decks
@@ -182,12 +196,22 @@ tcglense decks mtg show <deck-id>
 tcglense decks mtg card <deck-id> set <card-id> --section <section-id> --qty 1
 tcglense decks mtg export <deck-id> --format moxfield-text
 tcglense decks mtg needed --mode card                # cards your decks want but you don't own
+tcglense decks mtg needed --deck <deck-id>           # one deck's share of that shortfall
+tcglense decks mtg buy-list --deck <deck-id>         # the same list as bulk-buy rows
 tcglense decks mtg sections <deck-id> add "Considering" --maybeboard
 tcglense decks mtg legality <deck-id>                # verdict against the deck's own format
 tcglense decks mtg bracket <deck-id>                 # estimated Commander bracket, and why
 tcglense decks mtg stats <deck-id> --card 'Sol Ring' # curve, colours, types + draw odds
 tcglense decks mtg goldfish <deck-id> --mulligans 1 --bottom <card-id>   # sample opener
 tcglense decks mtg tokens <deck-id>                  # tokens + emblems to bring besides the deck
+tcglense decks mtg combos <deck-id>                  # combos it assembles, and near-misses
+tcglense decks mtg mana <deck-id>                    # colour requirements vs. its sources
+tcglense decks mtg pricing <deck-id>                 # where the value is + cheaper printings
+tcglense decks mtg roles <deck-id>                   # ramp / draw / removal / wipes / …
+tcglense decks mtg suggestions <deck-id>             # cards you own that this deck could play
+tcglense decks mtg diff <deck-id> <other-deck-id>    # what changed between two of your decks
+tcglense decks mtg copy <deck-id>                    # duplicate it (private, same folder)
+tcglense decks mtg add-to-collection <deck-id>       # own the singles (adds on top; not idempotent)
 tcglense decks mtg containing <card-id>              # your decks that run (or consider) a card
 
 # Life tracker (auth required)
@@ -208,6 +232,7 @@ tcglense public alice-0001 profile
 tcglense public alice-0001 collection mtg summary
 tcglense public alice-0001 collection mtg products list
 tcglense public alice-0001 wishlist mtg summary
+tcglense public alice-0001 wishlist mtg list --finish foil    # only what they want in foil
 tcglense public alice-0001 collection mtg sets --bulk-max 200
 tcglense public alice-0001 decks
 tcglense public alice-0001 deck <deck-id> legality
@@ -215,7 +240,12 @@ tcglense public alice-0001 deck <deck-id> bracket
 tcglense public alice-0001 deck <deck-id> stats
 tcglense public alice-0001 deck <deck-id> goldfish --seed 42
 tcglense public alice-0001 deck <deck-id> tokens
+tcglense public alice-0001 deck <deck-id> combos
+tcglense public alice-0001 deck <deck-id> mana
+tcglense public alice-0001 deck <deck-id> pricing
+tcglense public alice-0001 deck <deck-id> roles
 tcglense public alice-0001 deck <deck-id> copy       # clone a public deck into your own
+tcglense public alice-0001 deck <deck-id> add-to-collection   # "I bought the singles for this list"
 
 # Server / meta
 tcglense health

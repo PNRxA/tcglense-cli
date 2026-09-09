@@ -251,6 +251,63 @@ pub fn collection_summary(s: &CollectionSummary) {
     println!("Bulk value   : {}", price(&s.bulk_value_usd));
 }
 
+/// A shopping list as bulk-buy rows: the card rows, the sealed products (only on
+/// an unfiltered wish-list request), and what the cap cut. Shared by the wish-list
+/// and decks `buy-list` commands.
+pub fn buy_list(b: &BuyList, p: &Printer) {
+    if b.cards.is_empty() && b.products.is_empty() {
+        println!("Nothing to buy.");
+        return;
+    }
+    if !b.cards.is_empty() {
+        let mut t = table(&["Qty", "Foil", "Name", "Set", "#", "TCGplayer", "Card ID"]);
+        for c in &b.cards {
+            t.add_row(vec![
+                c.quantity.to_string(),
+                c.foil_quantity.to_string(),
+                truncate(&c.name, 32),
+                c.set_code.to_uppercase(),
+                c.collector_number.clone(),
+                c.tcgplayer_id
+                    .map(|id| id.to_string())
+                    .unwrap_or_else(|| "—".to_string()),
+                truncate(&c.card_id, 12),
+            ]);
+        }
+        println!("{t}");
+    }
+    if !b.products.is_empty() {
+        println!("\nSealed products:");
+        let mut t = table(&["Qty", "Foil", "Name", "TCGplayer"]);
+        for pr in &b.products {
+            t.add_row(vec![
+                pr.quantity.to_string(),
+                pr.foil_quantity.to_string(),
+                truncate(&pr.name, 40),
+                pr.product_id.clone(),
+            ]);
+        }
+        println!("{t}");
+    }
+    let mut note = format!(
+        "{} card row(s){}",
+        b.total_cards,
+        if b.total_products > 0 {
+            format!(" · {} sealed product(s)", b.total_products)
+        } else {
+            String::new()
+        }
+    );
+    if b.truncated {
+        note.push_str(&format!(
+            " · truncated: showing {} card(s) and {} product(s)",
+            b.cards.len(),
+            b.products.len()
+        ));
+    }
+    p.note(note);
+}
+
 pub fn product_holdings_table(entries: &[ProductHoldingEntry]) {
     let mut t = table(&["ID", "Name", "Set", "Type", "Qty", "Foil", "USD"]);
     for e in entries {
