@@ -80,12 +80,12 @@ pub struct CardsArgs {
     #[arg(long)]
     pub page_size: Option<u32>,
     /// Show only the first rows of the same search, skipping the (expensive)
-    /// total — a quick peek rather than a page to turn. Not available with --set.
-    #[arg(long)]
-    pub preview: bool,
-    /// With --preview, rows to return (clamped to 1..=25 by the server; default 8;
-    /// ignored without --preview).
+    /// total — a quick peek rather than a page to turn. Not available with --set,
+    /// and there is no page to turn, so --page / --page-size are rejected.
     #[arg(long, conflicts_with_all = ["page", "page_size"])]
+    pub preview: bool,
+    /// With --preview, rows to return (clamped to 1..=25 by the server; default 8).
+    #[arg(long, requires = "preview", conflicts_with_all = ["page", "page_size"])]
     pub limit: Option<u32>,
 }
 
@@ -693,7 +693,9 @@ pub async fn combos(ctx: &Ctx, args: CombosArgs) -> Result<()> {
                     let cmdr = if p.must_be_commander { " (cmdr)" } else { "" };
                     format!("{qty}{}{cmdr}", p.name)
                 })
-                .chain(c.templates.iter().cloned())
+                // A template ("A free sacrifice outlet") is a requirement, not a
+                // card to go and buy — bracket it, as the deck surface does.
+                .chain(c.templates.iter().map(|t| format!("[{t}]")))
                 .collect();
             t.add_row(vec![
                 output::truncate(&pieces.join(" + "), 56),

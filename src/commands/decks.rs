@@ -1556,8 +1556,15 @@ async fn diff(ctx: &Ctx, deck_base: &str, other_id: i64) -> Result<()> {
         d.summary.finish_changed,
         d.summary.unchanged
     );
+    // `cards` folds over the deck proper only, section-agnostic: a maybeboard-only
+    // difference, or a card moved between sections, empties it while `sections`
+    // still has something to say — so "identical" needs both to be empty.
     if d.cards.is_empty() {
-        println!("\nThe two decks hold the same cards.");
+        if d.sections.is_empty() {
+            println!("\nThe two decks are identical.");
+        } else {
+            println!("\nThe decks proper hold the same cards — only the sections below differ.");
+        }
     } else {
         println!();
         print_diff_entries(&d.cards);
