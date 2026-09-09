@@ -130,17 +130,22 @@ tcglense games
 tcglense sets mtg
 tcglense set mtg blb --cards -q 't:creature c:g' --sort price --dir desc
 tcglense set mtg sld --drops --drop 'happy'          # Secret Lair drops, filtered by title
+tcglense releases mtg --from 2026-10-01 --to 2026-12-31   # what lands in a window, with what it ships
 tcglense cards mtg -q 'lightning bolt' --sort price --dir desc
+tcglense cards mtg -q 'kw:flying' --preview --limit 8     # first rows only, no (expensive) total
 tcglense search mtg 'sol ring'                      # cards, products, precons + keywords by name
 tcglense card mtg <card-id>                          # detail, incl. per-format legality
 tcglense prices mtg <card-id> --range 1y
 tcglense prints mtg <card-id>
 tcglense rulings mtg <card-id>
+tcglense combos mtg <card-id>                        # the Commander Spellbook combos it's a piece of
 tcglense sealed mtg <card-id>
 tcglense products mtg --set blb --sort price --dir desc
 tcglense product mtg <product-id> contents
 tcglense product mtg <product-id> cards -q 't:creature' --sort price --dir desc
 tcglense product mtg <product-id> cards --component <name>   # one unlisted box component (see `sections`)
+tcglense product mtg <product-id> ev                  # expected value of one copy, per booster + sheet
+tcglense product mtg <product-id> open --seed 42 --copies 2   # simulated opening (same seed, same packs)
 tcglense precons mtg list --type 'Commander Deck'     # decklists that ship with the sets
 tcglense precons mtg groups --group set --set tmc     # bucketed by set (or by --group type)
 tcglense precons mtg facets                           # the deck types + sets that have precons

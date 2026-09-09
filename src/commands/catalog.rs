@@ -1,5 +1,6 @@
-//! Public catalog commands: games, sets, cards, prices, prints, sealed products,
-//! scan, and image download.
+//! Public catalog commands: games, sets, the release calendar, cards, combos,
+//! prices, prints, sealed products (including their expected value and simulated
+//! openings), scan, and image download.
 
 use std::path::PathBuf;
 
@@ -78,12 +79,38 @@ pub struct CardsArgs {
     pub page: Option<u32>,
     #[arg(long)]
     pub page_size: Option<u32>,
+    /// Show only the first rows of the same search, skipping the (expensive)
+    /// total — a quick peek rather than a page to turn. Not available with --set.
+    #[arg(long)]
+    pub preview: bool,
+    /// With --preview, rows to return (clamped to 1..=25 by the server; default 8;
+    /// ignored without --preview).
+    #[arg(long, conflicts_with_all = ["page", "page_size"])]
+    pub limit: Option<u32>,
 }
 
 #[derive(Debug, Args)]
 pub struct CardArgs {
     pub game: String,
     pub id: String,
+}
+
+#[derive(Debug, Args)]
+pub struct CombosArgs {
+    pub game: String,
+    pub id: String,
+}
+
+#[derive(Debug, Args)]
+pub struct ReleasesArgs {
+    pub game: String,
+    /// First day of the window, `YYYY-MM-DD`, inclusive (default: today).
+    #[arg(long)]
+    pub from: Option<String>,
+    /// Last day of the window, `YYYY-MM-DD`, inclusive (default: `from` + 90 days;
+    /// the window spans at most 366 days).
+    #[arg(long)]
+    pub to: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -216,6 +243,18 @@ pub enum ProductCommand {
         /// Scryfall-style filter — the manifest narrows to matching sections + counts.
         #[arg(short = 'q', long)]
         query: Option<String>,
+    },
+    /// Expected value of one copy at today's prices, per booster and per sheet.
+    Ev,
+    /// Simulate opening the product — stateless and seeded, so the same seed
+    /// deals the same packs.
+    Open {
+        /// Roll seed; omit for a fresh random one (the result echoes it back).
+        #[arg(long)]
+        seed: Option<i64>,
+        /// How many copies of the product to open (default 1).
+        #[arg(long)]
+        copies: Option<i64>,
     },
 }
 
@@ -362,6 +401,77 @@ pub async fn sets(ctx: &Ctx, args: SetsArgs) -> Result<()> {
     Ok(())
 }
 
+/// The release calendar for a window: the sets landing inside it (with the precons
+/// and sealed products they ship) and the Secret Lair drops, both date-ascending.
+pub async fn releases(ctx: &Ctx, args: ReleasesArgs) -> Result<()> {
+    let mut q: Vec<(&str, String)> = Vec::new();
+    push_opt(&mut q, "from", &args.from);
+    push_opt(&mut q, "to", &args.to);
+    let path = format!("/api/games/{}/releases", args.game);
+    let r: Releases = ctx.client.get_json(&path, &q).await?;
+    if ctx.printer.json {
+        return ctx.printer.json(&r);
+    }
+    println!("Releases {} → {}", r.from, r.to);
+    if r.sets.is_empty() && r.secret_lair_drops.is_empty() {
+        println!("Nothing releases in this window.");
+        return Ok(());
+    }
+
+    if !r.sets.is_empty() {
+        let mut t = table(&[
+            "Date", "Code", "Name", "Type", "Cards", "Precons", "Products",
+        ]);
+        for s in &r.sets {
+            t.add_row(vec![
+                s.released_at.clone(),
+                s.set.code.to_uppercase(),
+                output::truncate(&s.set.name, 40),
+                output::dash(&s.set.set_type),
+                s.set.card_count.to_string(),
+                s.precons.len().to_string(),
+                s.products.len().to_string(),
+            ]);
+        }
+        println!("{t}");
+        // What each set ships, named — the counts above say how many, not which.
+        for s in &r.sets {
+            if s.precons.is_empty() && s.products.is_empty() {
+                continue;
+            }
+            println!("\n== {} ({}) ==", s.set.name, s.set.code.to_uppercase());
+            if !s.precons.is_empty() {
+                let names: Vec<&str> = s.precons.iter().map(|p| p.name.as_str()).collect();
+                println!("  Precons : {}", output::truncate(&names.join(", "), 100));
+            }
+            if !s.products.is_empty() {
+                let names: Vec<&str> = s.products.iter().map(|p| p.name.as_str()).collect();
+                println!("  Products: {}", output::truncate(&names.join(", "), 100));
+            }
+        }
+    }
+
+    if !r.secret_lair_drops.is_empty() {
+        println!("\n== Secret Lair drops ==");
+        let mut t = table(&["Date", "Title", "Slug", "Products"]);
+        for d in &r.secret_lair_drops {
+            t.add_row(vec![
+                d.released_at.clone(),
+                output::truncate(&d.title, 44),
+                d.slug.clone(),
+                d.products.len().to_string(),
+            ]);
+        }
+        println!("{t}");
+    }
+    ctx.printer.note(format!(
+        "\n{} set(s) · {} Secret Lair drop(s).",
+        r.sets.len(),
+        r.secret_lair_drops.len()
+    ));
+    Ok(())
+}
+
 pub async fn set(ctx: &Ctx, args: SetArgs) -> Result<()> {
     let base = format!("/api/games/{}/sets/{}", args.game, args.code);
     let mut q: Vec<(&str, String)> = Vec::new();
@@ -425,6 +535,9 @@ pub async fn set(ctx: &Ctx, args: SetArgs) -> Result<()> {
 }
 
 pub async fn cards(ctx: &Ctx, args: CardsArgs) -> Result<()> {
+    if args.preview {
+        return cards_preview(ctx, args).await;
+    }
     let mut q: Vec<(&str, String)> = Vec::new();
     push_opt(&mut q, "q", &args.query);
     push_opt(&mut q, "sort", &args.sort);
@@ -441,6 +554,41 @@ pub async fn cards(ctx: &Ctx, args: CardsArgs) -> Result<()> {
     };
     let page: Page<Card> = ctx.client.get_json(&path, &q).await?;
     print_card_page(ctx, page);
+    Ok(())
+}
+
+/// The first `--limit` rows of the same search the listing pages through, without
+/// the `COUNT(*)` a page's total costs — a peek, not a page to turn. `has_more` is
+/// honest (the API over-fetches one row) but there is no total and no page two.
+async fn cards_preview(ctx: &Ctx, args: CardsArgs) -> Result<()> {
+    if args.set.is_some() {
+        bail!("--preview is not available with --set; drop --set (or use `set <code> --cards`)");
+    }
+    let mut q: Vec<(&str, String)> = Vec::new();
+    push_opt(&mut q, "q", &args.query);
+    push_opt(&mut q, "name", &args.name);
+    push_opt(&mut q, "sort", &args.sort);
+    push_opt(&mut q, "dir", &args.dir);
+    push_opt(&mut q, "limit", &args.limit);
+    let path = format!("/api/games/{}/cards/preview", args.game);
+    let group: SearchGroup<Card> = ctx.client.get_json(&path, &q).await?;
+    if ctx.printer.json {
+        return ctx.printer.json(&group);
+    }
+    if group.data.is_empty() {
+        println!("No matches.");
+        return Ok(());
+    }
+    cards_table(&group.data);
+    ctx.printer.note(format!(
+        "showing {}{}",
+        group.data.len(),
+        if group.has_more {
+            " · more match — use the paged listing"
+        } else {
+            ""
+        }
+    ));
     Ok(())
 }
 
@@ -516,6 +664,59 @@ pub async fn rulings(ctx: &Ctx, args: RulingsArgs) -> Result<()> {
         }
         println!("{t}");
     }
+    Ok(())
+}
+
+/// The Commander Spellbook combos a card is a piece of, most-played first. Keyed
+/// by the card's gameplay identity, so every printing answers the same list; the
+/// source's attribution rides under the table because its terms ask for it.
+pub async fn combos(ctx: &Ctx, args: CombosArgs) -> Result<()> {
+    let path = format!("/api/games/{}/cards/{}/combos", args.game, args.id);
+    let r: CardCombos = ctx.client.get_json(&path, &[]).await?;
+    if ctx.printer.json {
+        return ctx.printer.json(&r);
+    }
+    if r.combos.is_empty() {
+        println!("No combos (or no combo data synced).");
+    } else {
+        let mut t = table(&["Pieces", "Produces", "Popularity", "Bracket", "ID"]);
+        for c in &r.combos {
+            let pieces: Vec<String> = c
+                .pieces
+                .iter()
+                .map(|p| {
+                    let qty = if p.quantity > 1 {
+                        format!("{}× ", p.quantity)
+                    } else {
+                        String::new()
+                    };
+                    let cmdr = if p.must_be_commander { " (cmdr)" } else { "" };
+                    format!("{qty}{}{cmdr}", p.name)
+                })
+                .chain(c.templates.iter().cloned())
+                .collect();
+            t.add_row(vec![
+                output::truncate(&pieces.join(" + "), 56),
+                output::truncate(&c.produces.join(", "), 36),
+                c.popularity.to_string(),
+                output::dash(&c.bracket_tag),
+                c.id.clone(),
+            ]);
+        }
+        println!("{t}");
+        ctx.printer.note(format!(
+            "{} combo(s) total{}.",
+            r.total,
+            if r.total > r.combos.len() as i64 {
+                format!(" · {} listed (the API caps the list)", r.combos.len())
+            } else {
+                String::new()
+            }
+        ));
+    }
+    // The data source's terms require the attribution, combos or not.
+    ctx.printer
+        .note(format!("Combo data: {} · {}", r.source, r.source_url));
     Ok(())
 }
 
@@ -958,8 +1159,148 @@ pub async fn product(ctx: &Ctx, args: ProductArgs) -> Result<()> {
                 println!("{t}");
             }
         }
+        Some(ProductCommand::Ev) => {
+            let body: DataBody<Option<ProductEv>> =
+                ctx.client.get_json(&format!("{base}/ev"), &[]).await?;
+            if ctx.printer.json {
+                ctx.printer.json(&body.data)?;
+            } else {
+                match &body.data {
+                    // `data: null` — not a 404 — is the answer for a product with
+                    // no booster data at all.
+                    None => println!(
+                        "No expected value — the product has no booster data (not a booster, or randomised contents)."
+                    ),
+                    Some(ev) => print_product_ev(ev),
+                }
+            }
+        }
+        Some(ProductCommand::Open { seed, copies }) => {
+            let mut q: Vec<(&str, String)> = Vec::new();
+            push_opt(&mut q, "seed", &seed);
+            push_opt(&mut q, "copies", &copies);
+            let opening: ProductOpening = ctx.client.get_json(&format!("{base}/open"), &q).await?;
+            if ctx.printer.json {
+                ctx.printer.json(&opening)?;
+            } else {
+                print_opening(ctx, &opening);
+            }
+        }
     }
     Ok(())
+}
+
+/// One copy's expected value: the headline, then each booster it opens with the
+/// sheets behind it, the biggest contributors across the copy, and the caveats
+/// (which the API generates and asks callers to show).
+fn print_product_ev(ev: &ProductEv) {
+    println!("EV ${} per copy", ev.ev_usd);
+    for p in &ev.packs {
+        println!(
+            "\n{}× {} ({}) · ${}/pack · {:.1} cards · priced share {:.1}%",
+            p.quantity,
+            p.name.as_deref().unwrap_or(&p.booster_code),
+            p.set_code.to_uppercase(),
+            p.ev_usd,
+            p.cards_per_pack,
+            p.priced_share * 100.0
+        );
+        if p.slots.is_empty() {
+            continue;
+        }
+        let mut t = table(&["Sheet", "Foil", "Picks", "Cards", "EV", "Priced"]);
+        for s in &p.slots {
+            t.add_row(vec![
+                output::truncate(&s.sheet, 32),
+                if s.foil { "yes" } else { "" }.to_string(),
+                format!("{:.2}", s.picks),
+                s.card_count.to_string(),
+                format!("${}", s.ev_usd),
+                format!("{:.1}%", s.priced_share * 100.0),
+            ]);
+        }
+        println!("{t}");
+    }
+    if !ev.top.is_empty() {
+        println!("\nTop contributors (per copy):");
+        println!("{}", odds_table(&ev.top));
+    }
+    for c in &ev.caveats {
+        println!("· {c}");
+    }
+}
+
+/// The odds table shared by the expected-value views: what a card is, how often it
+/// shows up, and what it adds.
+fn odds_table(odds: &[PackCardOdds]) -> comfy_table::Table {
+    let mut t = table(&[
+        "Name",
+        "Set",
+        "#",
+        "Foil",
+        "Sheet",
+        "1 in",
+        "Price",
+        "Contribution",
+    ]);
+    for o in odds {
+        t.add_row(vec![
+            output::truncate(&o.card.name, 32),
+            o.card.set_code.to_uppercase(),
+            o.card.collector_number.clone(),
+            if o.foil { "yes" } else { "" }.to_string(),
+            output::truncate(&o.sheet, 24),
+            format!("{:.1}", o.one_in),
+            output::price(&o.price_usd),
+            format!("${}", o.contribution_usd),
+        ]);
+    }
+    t
+}
+
+/// One simulated opening, pack by pack. The seed rides in the footer because the
+/// run is a pure function of it — the same seed deals the same packs.
+fn print_opening(ctx: &Ctx, o: &ProductOpening) {
+    println!(
+        "seed {} · {} cop(y/ies) · {} pack(s) · ${} pulled ({} priced, {} unpriced)",
+        o.seed,
+        o.copies,
+        o.packs.len(),
+        o.value_usd,
+        o.priced_count,
+        o.unpriced_count
+    );
+    for (i, p) in o.packs.iter().enumerate() {
+        println!(
+            "\n== Pack {} · {} ({}) · variant {} · ${} ==",
+            i + 1,
+            p.name.as_deref().unwrap_or(&p.booster_code),
+            p.set_code.to_uppercase(),
+            p.variant,
+            p.value_usd
+        );
+        let mut t = table(&["Name", "Set", "#", "Rarity", "Foil", "Sheet", "USD"]);
+        for c in &p.cards {
+            t.add_row(vec![
+                output::truncate(&c.card.name, 32),
+                c.card.set_code.to_uppercase(),
+                c.card.collector_number.clone(),
+                output::dash(&c.card.rarity),
+                if c.foil { "yes" } else { "" }.to_string(),
+                output::truncate(&c.sheet, 24),
+                output::price(&c.price_usd),
+            ]);
+        }
+        println!("{t}");
+    }
+    if !o.caveats.is_empty() {
+        println!();
+        for c in &o.caveats {
+            println!("· {c}");
+        }
+    }
+    ctx.printer
+        .note(format!("Replay this opening with --seed {}.", o.seed));
 }
 
 pub async fn ingest(ctx: &Ctx, args: IngestArgs) -> Result<()> {

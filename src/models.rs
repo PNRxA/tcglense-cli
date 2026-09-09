@@ -352,6 +352,238 @@ pub struct ProductContainer {
 }
 
 // ---------------------------------------------------------------------------
+// Combos, sealed expected value / openings, and the release calendar
+// ---------------------------------------------------------------------------
+
+/// One card a combo needs, as the card page lists it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComboPiece {
+    /// The card's gameplay identity (Scryfall `oracle_id`).
+    pub oracle_id: String,
+    pub name: String,
+    /// Copies the combo needs.
+    pub quantity: i64,
+    /// Whether it has to be in the command zone.
+    pub must_be_commander: bool,
+    /// A catalog printing to look up — the newest the catalog holds; null when it
+    /// holds none (a spoiler, a card set not imported yet).
+    #[serde(default)]
+    pub card_id: Option<String>,
+}
+
+/// One Commander Spellbook combo the viewed card is a piece of. Everything here is
+/// the data source's own datum — `url` is the page it came from, the link the
+/// source's terms ask for.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CardCombo {
+    /// Commander Spellbook's variant id (`"245-2034-6705"`).
+    pub id: String,
+    /// The combo's page on Commander Spellbook.
+    pub url: String,
+    /// Colour identity letters in WUBRG order; empty for colourless.
+    #[serde(default)]
+    pub identity: Vec<String>,
+    /// The step-by-step description.
+    pub description: String,
+    /// Upstream's popularity counter — higher is more played.
+    pub popularity: i64,
+    /// Wildcard requirements the app can't evaluate ("A free sacrifice outlet").
+    #[serde(default)]
+    pub templates: Vec<String>,
+    /// What it produces — the results a player cares about, by name.
+    #[serde(default)]
+    pub produces: Vec<String>,
+    /// Upstream's bracket tag (`"C"` casual, `"R"` ruthless, …); null when unset.
+    #[serde(default)]
+    pub bracket_tag: Option<String>,
+    /// Mana to start it, Scryfall-style (`"{6}"`); null when none is needed.
+    #[serde(default)]
+    pub mana_needed: Option<String>,
+    #[serde(default)]
+    pub mana_value_needed: Option<i64>,
+    /// Prerequisites beyond the pieces themselves; null when none.
+    #[serde(default)]
+    pub prerequisites: Option<String>,
+    /// Every piece, in the combo's own order — the viewed card included.
+    #[serde(default)]
+    pub pieces: Vec<ComboPiece>,
+}
+
+/// The combos a card is a piece of, most-played first.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CardCombos {
+    /// At most 50, by popularity; `total` is exact.
+    #[serde(default)]
+    pub combos: Vec<CardCombo>,
+    pub total: i64,
+    /// Where the data comes from, for the attribution the source asks for.
+    pub source: String,
+    pub source_url: String,
+}
+
+/// One card's odds inside a booster: how often it shows up, and what that is worth.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PackCardOdds {
+    pub card: Card,
+    pub foil: bool,
+    /// The print sheet it comes off.
+    pub sheet: String,
+    /// Expected copies per pack.
+    pub expected_per_pack: f64,
+    /// One in this many packs holds it.
+    pub one_in: f64,
+    pub price_usd: Option<String>,
+    /// 2-dp USD this card contributes — per pack inside a pack or slot, per copy of
+    /// the product in the product-wide list.
+    pub contribution_usd: String,
+}
+
+/// One slot of a booster: a print sheet picked from some number of times.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SlotEv {
+    pub sheet: String,
+    pub foil: bool,
+    /// Average picks off this sheet per pack.
+    pub picks: f64,
+    /// Distinct cards on the sheet.
+    pub card_count: i64,
+    pub ev_usd: String,
+    /// Share of the sheet's weight that carries a price (0..=1).
+    pub priced_share: f64,
+    #[serde(default)]
+    pub top: Vec<PackCardOdds>,
+}
+
+/// One distinct booster a copy of the product opens.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PackEv {
+    pub booster_code: String,
+    #[serde(default)]
+    pub name: Option<String>,
+    pub set_code: String,
+    /// How many of this booster one copy of the product holds.
+    pub quantity: i64,
+    pub cards_per_pack: f64,
+    pub ev_usd: String,
+    /// Share of the pack's contents that carries a price (0..=1).
+    pub priced_share: f64,
+    #[serde(default)]
+    pub slots: Vec<SlotEv>,
+    #[serde(default)]
+    pub top: Vec<PackCardOdds>,
+}
+
+/// The expected value of **one copy** of a sealed product at today's prices — an
+/// average over many openings, never a valuation of the copy in front of you.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProductEv {
+    /// 2-dp USD, summed before rounding — so it can differ by a cent from adding up
+    /// the rendered per-pack figures.
+    pub ev_usd: String,
+    /// Every distinct booster one copy opens, with how many of each.
+    #[serde(default)]
+    pub packs: Vec<PackEv>,
+    /// The biggest expected contributors across the whole copy (at most 12).
+    #[serde(default)]
+    pub top: Vec<PackCardOdds>,
+    /// What qualifies these numbers, generated server-side.
+    #[serde(default)]
+    pub caveats: Vec<String>,
+}
+
+/// One card a simulated opening dealt.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpenedCard {
+    pub card: Card,
+    pub foil: bool,
+    /// The print sheet it came off.
+    pub sheet: String,
+    pub price_usd: Option<String>,
+}
+
+/// One pack of a simulated opening, with the configuration the dice rolled.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpenedPack {
+    pub booster_code: String,
+    #[serde(default)]
+    pub name: Option<String>,
+    pub set_code: String,
+    /// Which of the booster's configurations was rolled.
+    pub variant: i64,
+    /// 2-dp USD of the cards below (unpriced cards count as $0).
+    pub value_usd: String,
+    #[serde(default)]
+    pub cards: Vec<OpenedCard>,
+}
+
+/// One simulated opening: stateless, seeded, and a pure function of its URL — what
+/// this run of the dice dealt, never what the product is worth.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProductOpening {
+    /// The seed this opening was rolled with — echoed so a random one can be
+    /// replayed or shared.
+    pub seed: i64,
+    /// How many copies of the product were opened.
+    pub copies: i64,
+    /// Every pack, in opening order: copy by copy, then the product's pack order.
+    #[serde(default)]
+    pub packs: Vec<OpenedPack>,
+    /// 2-dp USD of everything pulled (unpriced cards count as $0).
+    pub value_usd: String,
+    /// Pulled cards that had a market price.
+    pub priced_count: i64,
+    /// Pulled cards that had none.
+    pub unpriced_count: i64,
+    /// What qualifies this run, generated server-side.
+    #[serde(default)]
+    pub caveats: Vec<String>,
+}
+
+/// A set releasing inside a window, with the precons and sealed products it ships.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SetRelease {
+    pub set: CardSet,
+    /// `YYYY-MM-DD`.
+    pub released_at: String,
+    /// Whether this is the Secret Lair set (its drops are listed separately).
+    pub secret_lair: bool,
+    #[serde(default)]
+    pub precons: Vec<PreconDeck>,
+    #[serde(default)]
+    pub products: Vec<Product>,
+}
+
+/// A Secret Lair drop whose cards release inside a window.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SecretLairDropRelease {
+    pub slug: String,
+    pub title: String,
+    pub set_code: String,
+    /// `YYYY-MM-DD`.
+    pub released_at: String,
+    #[serde(default)]
+    pub products: Vec<Product>,
+}
+
+/// The release calendar for a window: the sets releasing in it (each with what it
+/// ships) and the Secret Lair drops, both date-ascending.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Releases {
+    /// The window's first day (`YYYY-MM-DD`), inclusive — as resolved, so a
+    /// defaulted request learns what it was answered for.
+    pub from: String,
+    /// The window's last day (`YYYY-MM-DD`), inclusive.
+    pub to: String,
+    /// Sets releasing inside the window, date then code ascending.
+    #[serde(default)]
+    pub sets: Vec<SetRelease>,
+    /// Secret Lair drops with cards releasing inside the window, date then title
+    /// ascending. Always empty for a game without Secret Lair.
+    #[serde(default)]
+    pub secret_lair_drops: Vec<SecretLairDropRelease>,
+}
+
+// ---------------------------------------------------------------------------
 // Collection / wish list
 // ---------------------------------------------------------------------------
 
