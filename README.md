@@ -160,6 +160,8 @@ tcglense export set mtg blb --format names
 # Collection (auth required)
 tcglense collection mtg summary
 tcglense collection mtg list -q 'is:foil'
+tcglense collection mtg list --min-copies 4 --finish regular   # playsets you own in paper-regular
+tcglense collection mtg breakdown                    # value by rarity/colour/type/finish + top ten
 tcglense collection mtg set <card-id> --qty 4 --foil 1
 tcglense collection mtg add <card-id> --qty 1
 tcglense collection mtg import --provider archidekt --source <url> --mode merge
@@ -173,6 +175,9 @@ tcglense collection mtg products list
 # Wish list (mirrors the collection card ops)
 tcglense wishlist mtg set <card-id> --qty 1
 tcglense wishlist mtg export-cards -o shopping-list.txt
+tcglense wishlist mtg buy-list --set blb             # bulk-buy rows with TCGplayer product ids
+tcglense wishlist mtg buy-list --json                # unfiltered: the whole list, sealed included
+tcglense wishlist mtg breakdown                      # what the wants are worth, by facet
 tcglense wishlist mtg visibility set true            # share your wish list publicly
 
 # Decks
@@ -208,6 +213,7 @@ tcglense public alice-0001 profile
 tcglense public alice-0001 collection mtg summary
 tcglense public alice-0001 collection mtg products list
 tcglense public alice-0001 wishlist mtg summary
+tcglense public alice-0001 wishlist mtg list --finish foil    # only what they want in foil
 tcglense public alice-0001 collection mtg sets --bulk-max 200
 tcglense public alice-0001 decks
 tcglense public alice-0001 deck <deck-id> legality

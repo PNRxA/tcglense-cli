@@ -8,7 +8,7 @@ use clap::{Args, Subcommand};
 
 use super::Ctx;
 use super::decks;
-use super::holdings::{self, Surface};
+use super::holdings::{self, CopyFilter, ListFilter, Surface};
 use crate::models::*;
 use crate::output::{decks_table, table};
 
@@ -74,18 +74,8 @@ pub enum PublicDeckCommand {
 pub enum PublicHoldingsCommand {
     /// List held cards.
     List {
-        #[arg(short = 'q', long)]
-        query: Option<String>,
-        #[arg(long)]
-        set: Option<String>,
-        #[arg(long)]
-        related: bool,
-        /// Sort key: updated | quantity | name | rarity | released | cmc | price.
-        #[arg(long)]
-        sort: Option<String>,
-        /// Direction: asc | desc.
-        #[arg(long)]
-        dir: Option<String>,
+        #[command(flatten)]
+        filter: ListFilter,
         #[arg(long)]
         page: Option<u32>,
         #[arg(long)]
@@ -112,8 +102,11 @@ pub enum PublicHoldingsCommand {
     /// Held cards in a drop-grouped set, grouped by drop.
     Drops {
         code: String,
+        /// Scryfall-style search filter within the set.
         #[arg(short = 'q', long)]
         query: Option<String>,
+        #[command(flatten)]
+        copies: CopyFilter,
         #[arg(long)]
         page: Option<u32>,
         #[arg(long)]
@@ -122,8 +115,11 @@ pub enum PublicHoldingsCommand {
     /// Held cards in a set, grouped by sub-type.
     Subtypes {
         code: String,
+        /// Scryfall-style search filter within the set.
         #[arg(short = 'q', long)]
         query: Option<String>,
+        #[command(flatten)]
+        copies: CopyFilter,
         #[arg(long)]
         page: Option<u32>,
         #[arg(long)]
@@ -295,14 +291,10 @@ fn print_shared_games(label: &str, games: &[PublicGameSummary]) {
 async fn run_holdings(ctx: &Ctx, s: &Surface, command: PublicHoldingsCommand) -> Result<()> {
     match command {
         PublicHoldingsCommand::List {
-            query,
-            set,
-            related,
-            sort,
-            dir,
+            filter,
             page,
             page_size,
-        } => holdings::list(ctx, s, query, set, related, sort, dir, page, page_size).await,
+        } => holdings::list(ctx, s, filter, page, page_size).await,
         PublicHoldingsCommand::Summary {
             set,
             related,
@@ -312,15 +304,17 @@ async fn run_holdings(ctx: &Ctx, s: &Surface, command: PublicHoldingsCommand) ->
         PublicHoldingsCommand::Drops {
             code,
             query,
+            copies,
             page,
             page_size,
-        } => holdings::set_drops(ctx, s, &code, query, page, page_size).await,
+        } => holdings::set_drops(ctx, s, &code, query, copies, page, page_size).await,
         PublicHoldingsCommand::Subtypes {
             code,
             query,
+            copies,
             page,
             page_size,
-        } => holdings::set_subtypes(ctx, s, &code, query, page, page_size).await,
+        } => holdings::set_subtypes(ctx, s, &code, query, copies, page, page_size).await,
         PublicHoldingsCommand::Owned { ids } => holdings::batch_counts(ctx, s, ids).await,
         PublicHoldingsCommand::Products { command } => match command {
             PublicProductsCommand::List {

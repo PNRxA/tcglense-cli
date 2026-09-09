@@ -8,9 +8,10 @@ use std::path::PathBuf;
 use anyhow::Result;
 use clap::{Args, Subcommand};
 
-use super::holdings::{self, ProductHoldingCommand, Surface};
+use super::holdings::{self, CopyFilter, ListFilter, ProductHoldingCommand, Surface};
 use super::{CardExportFormat, Ctx};
-use crate::models::WishlistVisibility;
+use crate::models::{BuyList, WishlistVisibility};
+use crate::output;
 
 #[derive(Debug, Args)]
 pub struct WishlistArgs {
@@ -23,16 +24,8 @@ pub struct WishlistArgs {
 pub enum WishlistCommand {
     /// List wanted cards.
     List {
-        #[arg(short = 'q', long)]
-        query: Option<String>,
-        #[arg(long)]
-        set: Option<String>,
-        #[arg(long)]
-        related: bool,
-        #[arg(long)]
-        sort: Option<String>,
-        #[arg(long)]
-        dir: Option<String>,
+        #[command(flatten)]
+        filter: ListFilter,
         #[arg(long)]
         page: Option<u32>,
         #[arg(long)]
@@ -72,11 +65,22 @@ pub enum WishlistCommand {
         #[arg(long, value_name = "CENTS")]
         bulk_max: Option<i64>,
     },
+    /// Where the wish list's value sits: copies + value by rarity, colour, card
+    /// type and finish, plus the most valuable wants.
+    Breakdown {
+        /// Per-unit bulk price cutoff in USD cents (default $1) — splits the bulk
+        /// subtotal out of the embedded summary's total.
+        #[arg(long, value_name = "CENTS")]
+        bulk_max: Option<i64>,
+    },
     /// Wanted cards in a drop-grouped set, grouped by drop.
     Drops {
         code: String,
+        /// Scryfall-style search filter within the set.
         #[arg(short = 'q', long)]
         query: Option<String>,
+        #[command(flatten)]
+        copies: CopyFilter,
         #[arg(long)]
         page: Option<u32>,
         #[arg(long)]
@@ -85,8 +89,11 @@ pub enum WishlistCommand {
     /// Wanted cards in a set, grouped by sub-type.
     Subtypes {
         code: String,
+        /// Scryfall-style search filter within the set.
         #[arg(short = 'q', long)]
         query: Option<String>,
+        #[command(flatten)]
+        copies: CopyFilter,
         #[arg(long)]
         page: Option<u32>,
         #[arg(long)]
@@ -94,19 +101,19 @@ pub enum WishlistCommand {
     },
     /// Batch wanted counts for the given card ids.
     Counts { ids: Vec<String> },
+    /// The shopping list: wanted cards as bulk-buy rows — name, set, collector
+    /// number, the wanted counts, and the printing's TCGplayer product id. An
+    /// unfiltered request (no `-q`, `--set` or copy-count filter) is "buy the whole
+    /// list" and carries the wanted sealed products too. Capped at 500 card rows.
+    BuyList {
+        #[command(flatten)]
+        filter: ListFilter,
+    },
     /// Export a wanted-card search as a `.txt` deck-list (the same filters as
     /// `list`) — a shopping list that pastes straight into the importers.
     ExportCards {
-        #[arg(short = 'q', long)]
-        query: Option<String>,
-        #[arg(long)]
-        set: Option<String>,
-        #[arg(long)]
-        related: bool,
-        #[arg(long)]
-        sort: Option<String>,
-        #[arg(long)]
-        dir: Option<String>,
+        #[command(flatten)]
+        filter: ListFilter,
         #[arg(long, value_enum, default_value_t = CardExportFormat::Text)]
         format: CardExportFormat,
         #[arg(short, long)]
@@ -144,14 +151,10 @@ pub async fn run(ctx: &Ctx, args: WishlistArgs) -> Result<()> {
     };
     match args.command {
         WishlistCommand::List {
-            query,
-            set,
-            related,
-            sort,
-            dir,
+            filter,
             page,
             page_size,
-        } => holdings::list(ctx, &s, query, set, related, sort, dir, page, page_size).await,
+        } => holdings::list(ctx, &s, filter, page, page_size).await,
         WishlistCommand::Get { card_id } => holdings::get(ctx, &s, &card_id).await,
         WishlistCommand::Set { card_id, qty, foil } => {
             holdings::set(ctx, &s, &card_id, qty, foil).await
@@ -164,31 +167,47 @@ pub async fn run(ctx: &Ctx, args: WishlistArgs) -> Result<()> {
             holdings::summary(ctx, &s, set, related, None).await
         }
         WishlistCommand::Sets { bulk_max } => holdings::sets(ctx, &s, bulk_max).await,
+        WishlistCommand::Breakdown { bulk_max } => holdings::breakdown(ctx, &s, bulk_max).await,
         WishlistCommand::Drops {
             code,
             query,
+            copies,
             page,
             page_size,
-        } => holdings::set_drops(ctx, &s, &code, query, page, page_size).await,
+        } => holdings::set_drops(ctx, &s, &code, query, copies, page, page_size).await,
         WishlistCommand::Subtypes {
             code,
             query,
+            copies,
             page,
             page_size,
-        } => holdings::set_subtypes(ctx, &s, &code, query, page, page_size).await,
+        } => holdings::set_subtypes(ctx, &s, &code, query, copies, page, page_size).await,
         WishlistCommand::Counts { ids } => holdings::batch_counts(ctx, &s, ids).await,
+        WishlistCommand::BuyList { filter } => buy_list(ctx, &s, filter).await,
         WishlistCommand::ExportCards {
-            query,
-            set,
-            related,
-            sort,
-            dir,
+            filter,
             format,
             output,
-        } => holdings::export_cards(ctx, &s, query, set, related, sort, dir, format, output).await,
+        } => holdings::export_cards(ctx, &s, filter, format, output).await,
         WishlistCommand::Products { command } => holdings::products(ctx, &s, command).await,
         WishlistCommand::Visibility { command } => visibility(ctx, &s, command).await,
     }
+}
+
+/// The shopping list: the wanted cards the same filters as `list` match, as
+/// bulk-buy rows. Not paginated — the API caps the card rows at 500 and says so on
+/// the envelope. An unfiltered request also carries the wanted sealed products.
+async fn buy_list(ctx: &Ctx, s: &Surface, filter: ListFilter) -> Result<()> {
+    let mut q: Vec<(&str, String)> = Vec::new();
+    filter.push(&mut q);
+    let path = format!("{}/buy-list", s.base);
+    let list: BuyList = ctx.client.get_json(&path, &q).await?;
+    if ctx.printer.json {
+        ctx.printer.json(&list)?;
+    } else {
+        output::buy_list(&list, &ctx.printer);
+    }
+    Ok(())
 }
 
 async fn visibility(ctx: &Ctx, s: &Surface, cmd: WishlistVisibilityCommand) -> Result<()> {

@@ -430,6 +430,65 @@ pub struct CollectionSubtypeGroup {
     pub cards: Vec<CollectionEntry>,
 }
 
+// Breakdown ------------------------------------------------------------------
+
+/// Where a user's per-game holdings' value sits (the collection or the wish list —
+/// the wish-list twin reads "wanted" for "held"): copies + estimated value by
+/// rarity, colour identity, card type and finish, plus the top holdings. Cards
+/// only; sealed products have none of these facets.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CollectionBreakdown {
+    /// The same fold `…/summary` answers over the same rows, so every bucket below
+    /// is a slice of exactly this total.
+    pub summary: CollectionSummary,
+    /// By rarity, in rarity order (`unknown` last). Only non-empty buckets.
+    #[serde(default)]
+    pub rarity: Vec<BreakdownBucket>,
+    /// By colour identity: WUBRG, then `multicolor`, then `colorless`.
+    #[serde(default)]
+    pub color: Vec<BreakdownBucket>,
+    /// By the type line's first card type, most valuable bucket first.
+    #[serde(default)]
+    pub card_type: Vec<BreakdownBucket>,
+    /// By finish: `regular` then `foil`, each counting only that finish's copies.
+    #[serde(default)]
+    pub finish: Vec<BreakdownBucket>,
+    /// The most valuable holdings by held value, highest first (at most ten).
+    #[serde(default)]
+    pub top: Vec<TopHolding>,
+    /// Distinct held cards that contribute nothing to any value here because no
+    /// finish they're held in is priced — so a small total is tellable from an
+    /// unpriced one.
+    pub unpriced_cards: i64,
+}
+
+/// One bucket of a breakdown facet: how many distinct held cards and copies file
+/// under it, and what they are worth as held.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BreakdownBucket {
+    /// The bucket's stable key — a rarity, a colour-identity bucket, a card type,
+    /// or `regular`/`foil`.
+    pub key: String,
+    /// Distinct held cards in the bucket (one per holdings row).
+    pub cards: i64,
+    /// Held copies in the bucket (regular + foil — or, for a finish bucket, that
+    /// finish).
+    pub copies: i64,
+    /// A 2-dp decimal string; `None` when none of the bucket's copies is priced.
+    pub value_usd: Option<String>,
+}
+
+/// One of the most valuable holdings, ranked by **held** value (price × copies —
+/// never a single copy's price, which is the list's `sort=price`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TopHolding {
+    pub card: Card,
+    pub quantity: i64,
+    pub foil_quantity: i64,
+    /// The held value, a 2-dp decimal string (an unpriced holding never ranks).
+    pub value_usd: String,
+}
+
 // Movers ---------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
