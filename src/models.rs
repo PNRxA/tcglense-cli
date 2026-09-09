@@ -568,6 +568,53 @@ pub struct ImportJob {
     pub error: Option<String>,
 }
 
+// Buy list -------------------------------------------------------------------
+
+/// One wanted card printing on a shopping list, as a store's bulk-entry page takes
+/// it: the counts plus the printing's TCGplayer product id where TCGplayer lists it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BuyListCard {
+    /// The printing's external (Scryfall) id.
+    pub card_id: String,
+    pub name: String,
+    pub set_code: String,
+    pub collector_number: String,
+    /// Regular copies wanted.
+    pub quantity: i64,
+    /// Foil copies wanted.
+    pub foil_quantity: i64,
+    /// TCGplayer product id of the printing; `None` when TCGplayer doesn't list it.
+    #[serde(default)]
+    pub tcgplayer_id: Option<i64>,
+}
+
+/// One wanted sealed product on a shopping list (its external id is its TCGplayer
+/// product id).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BuyListProduct {
+    pub product_id: String,
+    pub name: String,
+    pub quantity: i64,
+    pub foil_quantity: i64,
+}
+
+/// A shopping list as bulk-buy rows — the wish list's (`GET /api/wishlist/{game}/
+/// buy-list`) and the decks' (`GET /api/decks/{game}/needed/buy-list`) share the
+/// shape. Card rows are capped at 500; `truncated` + the totals say what was cut.
+/// Sealed products ride only on an unfiltered wish-list request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BuyList {
+    pub cards: Vec<BuyListCard>,
+    #[serde(default)]
+    pub products: Vec<BuyListProduct>,
+    /// Card rows the filters matched, including any beyond the cap.
+    pub total_cards: i64,
+    /// Sealed-product rows (`0` when the request was filtered).
+    pub total_products: i64,
+    /// Whether either list was cut at the cap.
+    pub truncated: bool,
+}
+
 // ---------------------------------------------------------------------------
 // Decks
 // ---------------------------------------------------------------------------
