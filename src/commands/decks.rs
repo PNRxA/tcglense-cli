@@ -108,7 +108,27 @@ pub enum DecksCommand {
         /// exact missing printing.
         #[arg(long, value_enum, default_value_t = NeededMode::Card)]
         mode: NeededMode,
+        /// Scope the list to one deck: what *it* still needs, as its share of the
+        /// shortfall across every deck (a copy two decks share is never counted as
+        /// owned by both).
+        #[arg(long, value_name = "DECK_ID")]
+        deck: Option<i64>,
     },
+    /// The needed list as bulk-buy rows — what a store's bulk-entry page takes.
+    BuyList {
+        /// `card` counts any printing of a gameplay card; `printing` reports the
+        /// exact missing printing.
+        #[arg(long, value_enum, default_value_t = NeededMode::Card)]
+        mode: NeededMode,
+        /// Scope the rows to one deck, exactly as `needed --deck` does.
+        #[arg(long, value_name = "DECK_ID")]
+        deck: Option<i64>,
+    },
+    /// Duplicate one of your decks — same sections and cards, private, same folder.
+    Copy { deck_id: i64 },
+    /// Add every card of the deck to your collection. Not idempotent: it adds on top
+    /// of what you own, so a second run adds a second copy.
+    AddToCollection { deck_id: i64 },
     /// Check a deck against its own format: offending cards + construction breaches.
     Legality { deck_id: i64 },
     /// Estimate where a Commander deck sits on the 1–5 bracket ladder.
@@ -127,6 +147,23 @@ pub enum DecksCommand {
     },
     /// The tokens and emblems the deck's cards make — what to bring besides the deck.
     Tokens { deck_id: i64 },
+    /// The combos the deck can assemble, and the ones it's one card away from.
+    Combos { deck_id: i64 },
+    /// The deck's colour requirements against the sources its library produces.
+    Mana { deck_id: i64 },
+    /// Where the deck's value is: every row priced, with its cheapest printing.
+    Pricing { deck_id: i64 },
+    /// Ramp, draw, removal, wipes, counters, tutors, recursion and protection counts.
+    Roles { deck_id: i64 },
+    /// Cards you own that this deck could play, grouped by the role they fill.
+    Suggestions { deck_id: i64 },
+    /// Compare two of your decks, card by card and section by section.
+    Diff {
+        /// The base deck.
+        deck_id: i64,
+        /// The deck to compare it with.
+        other_id: i64,
+    },
     /// List your decks that contain a card (any printing of it), latest edit first.
     Containing {
         /// External card id.
@@ -455,7 +492,37 @@ pub async fn run(ctx: &Ctx, args: DecksArgs) -> Result<()> {
             sections(ctx, &base, deck_id, command).await?
         }
         DecksCommand::Card { deck_id, command } => deck_card(ctx, &base, deck_id, command).await?,
-        DecksCommand::Needed { mode } => needed(ctx, &base, mode).await?,
+        DecksCommand::Needed { mode, deck } => needed(ctx, &base, mode, deck).await?,
+        DecksCommand::BuyList { mode, deck } => {
+            let mut q: Vec<(&'static str, String)> = vec![("mode", mode.as_str().to_string())];
+            push_opt(&mut q, "deck_id", &deck);
+            let b: BuyList = ctx
+                .client
+                .get_json(&format!("{base}/needed/buy-list"), &q)
+                .await?;
+            if ctx.printer.json {
+                ctx.printer.json(&b)?;
+            } else {
+                output::buy_list(&b, &ctx.printer);
+            }
+        }
+        DecksCommand::Copy { deck_id } => {
+            let d: Deck = ctx
+                .client
+                .post_json(&format!("{base}/{deck_id}/copy"), serde_json::json!({}))
+                .await?;
+            if ctx.printer.json {
+                ctx.printer.json(&d)?;
+            } else {
+                println!(
+                    "Copied '{}' as deck {} (private, same folder).",
+                    d.name, d.id
+                );
+            }
+        }
+        DecksCommand::AddToCollection { deck_id } => {
+            add_to_collection(ctx, &format!("{base}/{deck_id}/collection")).await?
+        }
         DecksCommand::Legality { deck_id } => legality(ctx, &format!("{base}/{deck_id}")).await?,
         DecksCommand::Bracket { deck_id } => bracket(ctx, &format!("{base}/{deck_id}")).await?,
         DecksCommand::Stats { deck_id, args } => {
@@ -465,6 +532,16 @@ pub async fn run(ctx: &Ctx, args: DecksArgs) -> Result<()> {
             goldfish(ctx, &format!("{base}/{deck_id}"), args).await?
         }
         DecksCommand::Tokens { deck_id } => tokens(ctx, &format!("{base}/{deck_id}")).await?,
+        DecksCommand::Combos { deck_id } => combos(ctx, &format!("{base}/{deck_id}")).await?,
+        DecksCommand::Mana { deck_id } => mana(ctx, &format!("{base}/{deck_id}")).await?,
+        DecksCommand::Pricing { deck_id } => pricing(ctx, &format!("{base}/{deck_id}")).await?,
+        DecksCommand::Roles { deck_id } => roles(ctx, &format!("{base}/{deck_id}")).await?,
+        DecksCommand::Suggestions { deck_id } => {
+            suggestions(ctx, &format!("{base}/{deck_id}")).await?
+        }
+        DecksCommand::Diff { deck_id, other_id } => {
+            diff(ctx, &format!("{base}/{deck_id}"), other_id).await?
+        }
         DecksCommand::Containing { card_id } => containing(ctx, &base, &card_id).await?,
         DecksCommand::Visibility { deck_id, public } => {
             let body = serde_json::json!({ "public": public });
@@ -640,35 +717,80 @@ async fn deck_card(ctx: &Ctx, base: &str, deck_id: i64, cmd: DeckCardCommand) ->
     Ok(())
 }
 
-async fn needed(ctx: &Ctx, base: &str, mode: NeededMode) -> Result<()> {
-    let body: DataBody<Vec<NeededCard>> = ctx
-        .client
-        .get_json(
-            &format!("{base}/needed"),
-            &[("mode", mode.as_str().to_string())],
-        )
-        .await?;
+/// The shortfall across every deck of a game, or — with `--deck` — one deck's share
+/// of it. The two money columns price the same list twice: at the printings the
+/// decks actually run, and at each card's cheapest printing anywhere.
+async fn needed(ctx: &Ctx, base: &str, mode: NeededMode, deck: Option<i64>) -> Result<()> {
+    let mut q: Vec<(&'static str, String)> = vec![("mode", mode.as_str().to_string())];
+    push_opt(&mut q, "deck_id", &deck);
+    let body: NeededList = ctx.client.get_json(&format!("{base}/needed"), &q).await?;
     if ctx.printer.json {
-        ctx.printer.json(&body.data)?;
-    } else if body.data.is_empty() {
+        return ctx.printer.json(&body);
+    }
+    if let Some(d) = &body.deck {
+        println!(
+            "Scoped to '{}' [{}] — its share of the shortfall across every deck.",
+            d.name, d.id
+        );
+    }
+    if body.data.is_empty() {
         println!("Nothing needed — your collection covers every deck.");
-    } else {
-        let mut t = table(&["Need", "Own", "Want", "Name", "Set", "#", "Decks"]);
-        for n in &body.data {
-            let decks: Vec<&str> = n.decks.iter().map(|d| d.name.as_str()).collect();
-            t.add_row(vec![
-                n.needed.to_string(),
-                n.owned.to_string(),
-                n.required.to_string(),
-                output::truncate(&n.card.name, 32),
-                n.card.set_code.to_uppercase(),
-                n.card.collector_number.clone(),
-                output::truncate(&decks.join(", "), 30),
-            ]);
-        }
-        println!("{t}");
-        ctx.printer
-            .note(format!("{} card(s) needed.", body.data.len()));
+        return Ok(());
+    }
+    let mut t = table(&[
+        "Need", "Own", "Want", "Name", "Set", "#", "Held", "Cheapest", "Decks",
+    ]);
+    for n in &body.data {
+        let decks: Vec<&str> = n.decks.iter().map(|d| d.name.as_str()).collect();
+        t.add_row(vec![
+            n.needed.to_string(),
+            n.owned.to_string(),
+            n.required.to_string(),
+            output::truncate(&n.card.name, 32),
+            n.card.set_code.to_uppercase(),
+            n.card.collector_number.clone(),
+            output::price(&n.held_usd),
+            output::price(&n.cheapest_usd),
+            output::truncate(&decks.join(", "), 24),
+        ]);
+    }
+    println!("{t}");
+    let totals = &body.totals;
+    ctx.printer.note(format!(
+        "{} card(s) · {} copies · {} at the printings your decks run · {} at each card's cheapest.",
+        totals.cards,
+        totals.copies,
+        output::price(&totals.held_usd),
+        output::price(&totals.cheapest_usd)
+    ));
+    // A total is only ever a floor while some entry has no price to add to it.
+    if totals.held_unpriced_cards > 0 || totals.cheapest_unpriced_cards > 0 {
+        ctx.printer.note(format!(
+            "  {} unpriced as held · {} with no priced printing at all — the totals are floors.",
+            totals.held_unpriced_cards, totals.cheapest_unpriced_cards
+        ));
+    }
+    Ok(())
+}
+
+/// Add every card of a deck to the caller's collection — the deck proper plus its
+/// sideboard, maybeboards skipped. Shared by the own-deck, public-deck and precon
+/// writes, which differ only in the path. **Not idempotent by design**: it adds on
+/// top of what's owned, so a second call records a second copy of the deck.
+pub async fn add_to_collection(ctx: &Ctx, path: &str) -> Result<()> {
+    let a: CollectionAdd = ctx.client.post_json(path, serde_json::json!({})).await?;
+    if ctx.printer.json {
+        return ctx.printer.json(&a);
+    }
+    println!(
+        "Added {} printing(s) ({} regular, {} foil) to your collection.",
+        a.cards, a.regular_copies, a.foil_copies
+    );
+    if a.skipped_cards > 0 {
+        println!(
+            "  {} card(s) skipped — no longer in the catalog.",
+            a.skipped_cards
+        );
     }
     Ok(())
 }
@@ -740,7 +862,8 @@ fn commanders(d: &Deck) -> String {
         .join(" & ")
 }
 
-// -- legality / bracket / analytics / goldfish / tokens -----------------------
+// -- legality / bracket / analytics / goldfish / tokens / combos / mana /
+// -- pricing / roles ---------------------------------------------------------
 //
 // These reads exist several times over — once for your own decks under
 // `/api/decks/{game}/{deck_id}`, once for a shared one under
@@ -1060,6 +1183,437 @@ pub async fn tokens(ctx: &Ctx, deck_base: &str) -> Result<()> {
     Ok(())
 }
 
+/// The Commander Spellbook combos the deck proper can assemble, and the ones it is
+/// exactly one card (or template, or commander swap) away from. The attribution
+/// footer is printed with every answer — the source's terms ask for the link.
+pub async fn combos(ctx: &Ctx, deck_base: &str) -> Result<()> {
+    let c: DeckCombos = ctx
+        .client
+        .get_json(&format!("{deck_base}/combos"), &[])
+        .await?;
+    if ctx.printer.json {
+        return ctx.printer.json(&c);
+    }
+    // `available: false` is "unknown", not "none" — saying "no combos" there would
+    // be a claim the data can't support.
+    if !c.available {
+        println!("No combo data has been synced for this game — nothing to say either way.");
+        println!("Data from {} ({}).", c.source, c.source_url);
+        return Ok(());
+    }
+    if c.combos.is_empty() {
+        println!("This deck can't assemble any known combo.");
+    } else {
+        println!("Assembled:");
+        let mut t = table(&["Pieces", "Produces", "Played", "Bracket", "URL"]);
+        for combo in &c.combos {
+            t.add_row(vec![
+                output::truncate(&combo_pieces(combo), 44),
+                output::truncate(&combo.produces.join(", "), 30),
+                combo.popularity.to_string(),
+                output::dash(&combo.bracket_tag),
+                combo.url.clone(),
+            ]);
+        }
+        println!("{t}");
+    }
+    if !c.almost.is_empty() {
+        println!("\nOne card away:");
+        let mut t = table(&["Missing", "Combo", "Produces", "Played", "URL"]);
+        for combo in &c.almost {
+            t.add_row(vec![
+                output::truncate(&combo_missing(combo), 28),
+                output::truncate(&combo_pieces(combo), 38),
+                output::truncate(&combo.produces.join(", "), 26),
+                combo.popularity.to_string(),
+                combo.url.clone(),
+            ]);
+        }
+        println!("{t}");
+    }
+    ctx.printer.note(format!(
+        "{} assembled · {} one card away.",
+        c.combo_count, c.almost_count
+    ));
+    ctx.printer
+        .note(format!("Data from {} ({}).", c.source, c.source_url));
+    Ok(())
+}
+
+/// A combo's pieces as one cell — `2× Name`, `Name (commander)` — in the combo's
+/// own order, plus the wildcard templates it also needs.
+fn combo_pieces(c: &DeckCombo) -> String {
+    let mut parts: Vec<String> = c
+        .pieces
+        .iter()
+        .map(|p| {
+            let qty = if p.quantity > 1 {
+                format!("{}× ", p.quantity)
+            } else {
+                String::new()
+            };
+            let zone = if p.must_be_commander {
+                " (commander)"
+            } else {
+                ""
+            };
+            format!("{qty}{}{zone}", p.name)
+        })
+        .collect();
+    parts.extend(c.templates.iter().map(|t| format!("[{t}]")));
+    parts.join(" + ")
+}
+
+/// What one "almost" combo still needs, with why each piece is missing (a template
+/// can't be evaluated at all; a commander miss is a card the deck holds elsewhere).
+fn combo_missing(c: &DeckCombo) -> String {
+    c.missing
+        .iter()
+        .map(|m| match m.kind.as_str() {
+            "template" => format!("{} (any)", m.name),
+            "commander" => format!("{} (as commander)", m.name),
+            _ => m.name.clone(),
+        })
+        .collect::<Vec<_>>()
+        .join(" + ")
+}
+
+/// The deck's colour requirements against its sources, judged with Frank Karsten's
+/// tables: demand is the library plus the command zone, supply the library alone.
+pub async fn mana(ctx: &Ctx, deck_base: &str) -> Result<()> {
+    let m: DeckManaBase = ctx
+        .client
+        .get_json(&format!("{deck_base}/mana"), &[])
+        .await?;
+    if ctx.printer.json {
+        return ctx.printer.json(&m);
+    }
+    println!(
+        "{} cards cast from · {} in the library · {} lands · judged against the {}-card column",
+        m.deck_size, m.library_size, m.land_count, m.table_size
+    );
+    let mut t = table(&[
+        "Colour",
+        "Pips",
+        "Sources",
+        "Needed",
+        "Shortfall",
+        "Verdict",
+    ]);
+    for c in &m.colors {
+        t.add_row(vec![
+            c.label.clone(),
+            c.pips.to_string(),
+            // The split is what a reader weighs: 36 lands and 2 rocks is not the
+            // same 38 sources as the other way round.
+            format!("{} ({}+{})", c.sources, c.land_sources, c.nonland_sources),
+            c.sources_needed
+                .map(|n| n.to_string())
+                .unwrap_or_else(|| "—".to_string()),
+            if c.shortfall > 0 {
+                c.shortfall.to_string()
+            } else {
+                String::new()
+            },
+            output::truncate(&c.verdict, 34),
+        ]);
+    }
+    println!("{t}");
+    for c in &m.colors {
+        if c.demand.is_empty() {
+            continue;
+        }
+        let shown: Vec<String> = c
+            .demand
+            .iter()
+            .take(4)
+            .map(|d| format!("{} {} (needs {})", d.name, d.mana_cost, d.sources_needed))
+            .collect();
+        let more = c.demand_count - shown.len() as i64;
+        println!(
+            "  {} wants: {}{}",
+            c.label,
+            shown.join(" · "),
+            if more > 0 {
+                format!(" · +{more} more")
+            } else {
+                String::new()
+            }
+        );
+    }
+    println!("\nWhat the numbers assume:");
+    for cav in &m.caveats {
+        println!("  · {cav}");
+    }
+    if m.unchecked_count > 0 {
+        ctx.printer.note(format!(
+            "{} library card(s) haven't been checked for what they produce — every source count is a floor.",
+            m.unchecked_count
+        ));
+    }
+    ctx.printer.note(format!("Thresholds from {}.", m.source));
+    Ok(())
+}
+
+/// Where the deck's value is: every row of the deck proper priced as held, beside
+/// the cheapest printing of the same card at the row's own finish split.
+pub async fn pricing(ctx: &Ctx, deck_base: &str) -> Result<()> {
+    let p: DeckPricing = ctx
+        .client
+        .get_json(&format!("{deck_base}/pricing"), &[])
+        .await?;
+    if ctx.printer.json {
+        return ctx.printer.json(&p);
+    }
+    if p.lines.is_empty() {
+        println!("This deck has no cards to price.");
+        return Ok(());
+    }
+    let mut t = table(&[
+        "Qty", "Foil", "Name", "Set", "#", "Held", "Cheapest", "Saving",
+    ]);
+    for l in &p.lines {
+        t.add_row(vec![
+            l.quantity.to_string(),
+            l.foil_quantity.to_string(),
+            output::truncate(&l.card.name, 32),
+            l.card.set_code.to_uppercase(),
+            l.card.collector_number.clone(),
+            output::price(&l.price_usd),
+            output::price(&l.cheapest.as_ref().map(|c| c.price_usd.clone())),
+            output::price(&l.saving_usd),
+        ]);
+    }
+    println!("{t}");
+    println!(
+        "\nTotal {}  ·  at the cheapest printings {}  ·  saving {}",
+        output::price(&p.total_usd),
+        output::price(&p.cheapest_total_usd),
+        output::price(&p.saving_usd)
+    );
+    if p.swappable_count > 0 {
+        ctx.printer.note(format!(
+            "{} row(s) would save money on a printing swap.",
+            p.swappable_count
+        ));
+    }
+    if p.unpriced_count > 0 {
+        ctx.printer.note(format!(
+            "{} row(s) unpriced in every finish they hold — the total is a floor.",
+            p.unpriced_count
+        ));
+    }
+    Ok(())
+}
+
+/// How many pieces of each deckbuilding role the deck holds. The roles are not a
+/// partition of the deck — a card can fill several, and most creatures and every
+/// land fill none — so the unclassified count is printed rather than inferred.
+pub async fn roles(ctx: &Ctx, deck_base: &str) -> Result<()> {
+    let r: DeckRoles = ctx
+        .client
+        .get_json(&format!("{deck_base}/roles"), &[])
+        .await?;
+    if ctx.printer.json {
+        return ctx.printer.json(&r);
+    }
+    let mut t = table(&["Role", "Cards", "Copies", "Examples"]);
+    for g in &r.roles {
+        let names: Vec<String> = g
+            .cards
+            .iter()
+            .map(|c| {
+                if c.quantity > 1 {
+                    format!("{}× {}", c.quantity, c.name)
+                } else {
+                    c.name.clone()
+                }
+            })
+            .collect();
+        t.add_row(vec![
+            g.label.clone(),
+            g.count.to_string(),
+            g.copies.to_string(),
+            output::truncate(&names.join(", "), 52),
+        ]);
+    }
+    println!("{t}");
+    ctx.printer.note(format!(
+        "{} card(s) in the deck · {} fill no role (the roles aren't a partition).",
+        r.card_count, r.unclassified_count
+    ));
+    Ok(())
+}
+
+/// The cards in the caller's collection this deck could play. Owner-only — it reads
+/// the collection, so there's no public or precon mirror of it.
+async fn suggestions(ctx: &Ctx, deck_base: &str) -> Result<()> {
+    let s: DeckSuggestions = ctx
+        .client
+        .get_json(&format!("{deck_base}/suggestions"), &[])
+        .await?;
+    if ctx.printer.json {
+        return ctx.printer.json(&s);
+    }
+    println!(
+        "{}  ·  colours {}  ·  {} owned candidate(s), {} scanned",
+        s.format_label.as_deref().unwrap_or("no tracked format"),
+        identity(&s.color_identity),
+        s.candidate_count,
+        s.scanned_count
+    );
+    if !s.commanders.is_empty() {
+        println!(
+            "  commanders: {}",
+            s.commanders
+                .iter()
+                .map(|c| c.name.as_str())
+                .collect::<Vec<_>>()
+                .join(" & ")
+        );
+    }
+    // `top` and every role's `card_ids` index into `cards`, which carries each card
+    // once however many roles it fills.
+    let by_id: HashMap<&str, &DeckSuggestionCard> =
+        s.cards.iter().map(|c| (c.card.id.as_str(), c)).collect();
+    if s.cards.is_empty() {
+        println!("\nNothing in your collection fits this deck.");
+        return Ok(());
+    }
+    if !s.top.is_empty() {
+        println!("\nMost played overall:");
+        let mut t = table(&["Rank", "Name", "Set", "#", "Own", "Roles"]);
+        for id in &s.top {
+            let Some(c) = by_id.get(id.as_str()) else {
+                continue;
+            };
+            t.add_row(vec![
+                c.edhrec_rank.to_string(),
+                output::truncate(&c.card.name, 32),
+                c.card.set_code.to_uppercase(),
+                c.card.collector_number.clone(),
+                c.owned.to_string(),
+                output::truncate(&c.roles.join(", "), 30),
+            ]);
+        }
+        println!("{t}");
+    }
+    println!();
+    for r in &s.roles {
+        if r.count == 0 {
+            continue;
+        }
+        let names: Vec<&str> = r
+            .card_ids
+            .iter()
+            .filter_map(|id| by_id.get(id.as_str()).map(|c| c.card.name.as_str()))
+            .take(5)
+            .collect();
+        println!(
+            "{}: you have {} · you own {} more — {}",
+            r.label,
+            r.in_deck,
+            r.count,
+            output::truncate(&names.join(", "), 60)
+        );
+    }
+    if s.unclassified_count > 0 {
+        println!(
+            "\n{} scanned candidate(s) fill no role at all.",
+            s.unclassified_count
+        );
+    }
+    println!("\nWhat this ranking is:");
+    for c in &s.caveats {
+        println!("  · {c}");
+    }
+    Ok(())
+}
+
+/// What changed between two of the caller's decks. Cards fold by **name** across
+/// every printing and both finishes, so a printing swap is not a change.
+async fn diff(ctx: &Ctx, deck_base: &str, other_id: i64) -> Result<()> {
+    let d: DeckDiff = ctx
+        .client
+        .get_json(&format!("{deck_base}/diff/{other_id}"), &[])
+        .await?;
+    if ctx.printer.json {
+        return ctx.printer.json(&d);
+    }
+    println!(
+        "{} [{}] vs {} [{}]",
+        d.base.name, d.base.id, d.other.name, d.other.id
+    );
+    println!(
+        "  {} cards vs {} cards",
+        d.base.total_cards, d.other.total_cards
+    );
+    println!(
+        "  {} added · {} removed · {} changed · {} finish-only · {} unchanged",
+        d.summary.added,
+        d.summary.removed,
+        d.summary.changed,
+        d.summary.finish_changed,
+        d.summary.unchanged
+    );
+    if d.cards.is_empty() {
+        println!("\nThe two decks hold the same cards.");
+    } else {
+        println!();
+        print_diff_entries(&d.cards);
+    }
+    // Only sections with something to report are listed, so each one gets a block.
+    for s in &d.sections {
+        println!(
+            "\n== {}{} ==  ({} card(s) held identically)",
+            s.name,
+            if s.is_maybeboard {
+                "  [maybeboard]"
+            } else {
+                ""
+            },
+            s.unchanged
+        );
+        print_diff_entries(&s.entries);
+    }
+    Ok(())
+}
+
+fn print_diff_entries(entries: &[DeckDiffEntry]) {
+    let mut t = table(&["Change", "Name", "Base", "Other", "Δ"]);
+    for e in entries {
+        // A `finish` row differs only in the regular/foil split, so the counts are
+        // only readable with the foil half spelled out.
+        let split = e.change == "finish";
+        t.add_row(vec![
+            e.change.clone(),
+            output::truncate(&e.name, 34),
+            diff_qty(e.base_quantity, e.base_foil_quantity, split),
+            diff_qty(e.other_quantity, e.other_foil_quantity, split),
+            format!("{:+}", e.delta),
+        ]);
+    }
+    println!("{t}");
+}
+
+fn diff_qty(quantity: i64, foil: i64, split: bool) -> String {
+    if split {
+        format!("{quantity} ({foil} foil)")
+    } else {
+        quantity.to_string()
+    }
+}
+
+/// A colour identity as WUBRG letters — `C` for a deliberately colourless deck, `—`
+/// when there was nothing to read a colour off at all.
+fn identity(colors: &Option<Vec<String>>) -> String {
+    match colors {
+        None => "—".to_string(),
+        Some(c) if c.is_empty() => "C".to_string(),
+        Some(c) => c.join(""),
+    }
+}
+
 fn join_ids(ids: &[i64], empty: &str) -> String {
     if ids.is_empty() {
         return empty.to_string();
@@ -1129,5 +1683,26 @@ fn print_deck_detail(d: &DeckDetail) {
             }
             println!("{t}");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{diff_qty, identity};
+
+    #[test]
+    fn identity_renders_the_three_way_colour_identity() {
+        assert_eq!(identity(&None), "—");
+        assert_eq!(identity(&Some(vec![])), "C");
+        assert_eq!(
+            identity(&Some(vec!["W".to_string(), "B".to_string()])),
+            "WB"
+        );
+    }
+
+    #[test]
+    fn diff_quantities_spell_out_the_foil_half_only_for_a_finish_change() {
+        assert_eq!(diff_qty(4, 1, false), "4");
+        assert_eq!(diff_qty(4, 1, true), "4 (1 foil)");
     }
 }

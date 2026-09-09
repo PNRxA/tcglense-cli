@@ -153,8 +153,12 @@ tcglense precons mtg show turtle-power-tmc            # header, value, every car
 tcglense precons mtg bracket turtle-power-tmc         # estimated Commander bracket (1–5)
 tcglense precons mtg goldfish turtle-power-tmc --seed 42
 tcglense precons mtg tokens turtle-power-tmc          # the tokens + emblems the decklist makes
+tcglense precons mtg combos turtle-power-tmc          # combos it assembles, and near-misses
+tcglense precons mtg mana turtle-power-tmc            # colour requirements vs. its sources
+tcglense precons mtg roles turtle-power-tmc           # ramp / draw / removal / wipes / …
 tcglense precons mtg containing <card-id>            # the precons that include a card
 tcglense precons mtg copy turtle-power-tmc            # clone it into your decks (auth required)
+tcglense precons mtg add-to-collection turtle-power-tmc   # record the cards you just bought
 tcglense keywords mtg --full                         # the rules glossary
 tcglense formats mtg --popular                       # formats legality is tracked for
 tcglense art-tags mtg -q squirrel                    # tags the `art:` filter matches
@@ -192,12 +196,22 @@ tcglense decks mtg show <deck-id>
 tcglense decks mtg card <deck-id> set <card-id> --section <section-id> --qty 1
 tcglense decks mtg export <deck-id> --format moxfield-text
 tcglense decks mtg needed --mode card                # cards your decks want but you don't own
+tcglense decks mtg needed --deck <deck-id>           # one deck's share of that shortfall
+tcglense decks mtg buy-list --deck <deck-id>         # the same list as bulk-buy rows
 tcglense decks mtg sections <deck-id> add "Considering" --maybeboard
 tcglense decks mtg legality <deck-id>                # verdict against the deck's own format
 tcglense decks mtg bracket <deck-id>                 # estimated Commander bracket, and why
 tcglense decks mtg stats <deck-id> --card 'Sol Ring' # curve, colours, types + draw odds
 tcglense decks mtg goldfish <deck-id> --mulligans 1 --bottom <card-id>   # sample opener
 tcglense decks mtg tokens <deck-id>                  # tokens + emblems to bring besides the deck
+tcglense decks mtg combos <deck-id>                  # combos it assembles, and near-misses
+tcglense decks mtg mana <deck-id>                    # colour requirements vs. its sources
+tcglense decks mtg pricing <deck-id>                 # where the value is + cheaper printings
+tcglense decks mtg roles <deck-id>                   # ramp / draw / removal / wipes / …
+tcglense decks mtg suggestions <deck-id>             # cards you own that this deck could play
+tcglense decks mtg diff <deck-id> <other-deck-id>    # what changed between two of your decks
+tcglense decks mtg copy <deck-id>                    # duplicate it (private, same folder)
+tcglense decks mtg add-to-collection <deck-id>       # own the singles (adds on top; not idempotent)
 tcglense decks mtg containing <card-id>              # your decks that run (or consider) a card
 
 # Life tracker (auth required)
@@ -226,7 +240,12 @@ tcglense public alice-0001 deck <deck-id> bracket
 tcglense public alice-0001 deck <deck-id> stats
 tcglense public alice-0001 deck <deck-id> goldfish --seed 42
 tcglense public alice-0001 deck <deck-id> tokens
+tcglense public alice-0001 deck <deck-id> combos
+tcglense public alice-0001 deck <deck-id> mana
+tcglense public alice-0001 deck <deck-id> pricing
+tcglense public alice-0001 deck <deck-id> roles
 tcglense public alice-0001 deck <deck-id> copy       # clone a public deck into your own
+tcglense public alice-0001 deck <deck-id> add-to-collection   # "I bought the singles for this list"
 
 # Server / meta
 tcglense health

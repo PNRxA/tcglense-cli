@@ -3,12 +3,13 @@
 //! themes, intro packs. Browse them flat or bucketed, read one in full, and copy
 //! one into your own decks.
 //!
-//! The per-deck reads (`legality`, `bracket`, `stats`, `goldfish`, `tokens`) are computed by
-//! the same core over the published list as over a deck of your own, so they reuse
-//! the handlers in [`super::decks`] with the precon's base path — the same way
-//! `public.rs` reuses them for a shared deck. The one write lives on the *decks*
-//! surface (`POST /api/decks/{game}/precons/{slug}/copy`), because what it creates
-//! is a deck.
+//! The per-deck reads (`legality`, `bracket`, `stats`, `goldfish`, `tokens`, `combos`,
+//! `mana`, `roles`) are computed by the same core over the published list as over a
+//! deck of your own, so they reuse the handlers in [`super::decks`] with the precon's
+//! base path — the same way `public.rs` reuses them for a shared deck. There is no
+//! precon `pricing`: the API has none. The writes live on the *decks* surface
+//! (`POST /api/decks/{game}/precons/{slug}/{copy,collection}`), because what they
+//! touch is a deck of your own and your collection.
 
 use anyhow::Result;
 use clap::{Args, Subcommand};
@@ -101,6 +102,12 @@ pub enum PreconsCommand {
     },
     /// The tokens and emblems the decklist makes (its product's own token sheet).
     Tokens { slug: String },
+    /// The combos the decklist can assemble, and the ones it's one card away from.
+    Combos { slug: String },
+    /// The decklist's colour requirements against the sources it ships with.
+    Mana { slug: String },
+    /// Ramp, draw, removal, wipes, counters, tutors, recursion and protection counts.
+    Roles { slug: String },
     /// List the precons that contain a card — any printing of it, on any board.
     Containing {
         /// External card id.
@@ -112,6 +119,10 @@ pub enum PreconsCommand {
     },
     /// Copy the precon into your own decks (auth required; starts private + loose).
     Copy { slug: String },
+    /// Add every card the precon ships to your collection (auth required). Not
+    /// idempotent: it adds on top of what you own, so a second run adds a second
+    /// copy of the deck.
+    AddToCollection { slug: String },
 }
 
 pub async fn run(ctx: &Ctx, args: PreconsArgs) -> Result<()> {
@@ -186,6 +197,9 @@ pub async fn run(ctx: &Ctx, args: PreconsArgs) -> Result<()> {
             decks::goldfish(ctx, &format!("{base}/{slug}"), args).await?
         }
         PreconsCommand::Tokens { slug } => decks::tokens(ctx, &format!("{base}/{slug}")).await?,
+        PreconsCommand::Combos { slug } => decks::combos(ctx, &format!("{base}/{slug}")).await?,
+        PreconsCommand::Mana { slug } => decks::mana(ctx, &format!("{base}/{slug}")).await?,
+        PreconsCommand::Roles { slug } => decks::roles(ctx, &format!("{base}/{slug}")).await?,
         PreconsCommand::Containing {
             card_id,
             page,
@@ -227,6 +241,12 @@ pub async fn run(ctx: &Ctx, args: PreconsArgs) -> Result<()> {
                     d.name, d.id, d.summary.total_cards
                 );
             }
+        }
+        // Like `copy`, this write lives on the *decks* surface — what it touches is
+        // the caller's own collection, not the published list.
+        PreconsCommand::AddToCollection { slug } => {
+            decks::add_to_collection(ctx, &format!("/api/decks/{game}/precons/{slug}/collection"))
+                .await?
         }
     }
     Ok(())
