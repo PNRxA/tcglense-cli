@@ -331,9 +331,10 @@ fn card_detail_text(c: &Card) -> Text<'static> {
     lines.push(Line::raw(""));
     lines.push(Line::styled(
         format!(
-            "USD {} · Foil {} · EUR {} · TIX {}",
+            "USD {} · Foil {} · Etched {} · EUR {} · TIX {}",
             price(&c.prices.usd),
             price(&c.prices.usd_foil),
+            price(&c.prices.usd_etched),
             c.prices.eur.as_deref().unwrap_or("—"),
             c.prices.tix.as_deref().unwrap_or("—"),
         ),

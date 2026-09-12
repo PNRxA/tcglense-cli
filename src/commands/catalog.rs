@@ -10,7 +10,8 @@ use clap::{Args, Subcommand};
 use super::{CardExportFormat, Ctx, page_footer, precons, push_flag, push_opt};
 use crate::models::*;
 use crate::output::{
-    self, card_detail, cards_table, games_table, prices_table, products_table, sets_table, table,
+    self, card_detail, card_detail_extras, cards_table, games_table, prices_table, products_table,
+    sets_table, table,
 };
 
 // -- arg types --------------------------------------------------------------
@@ -594,11 +595,12 @@ async fn cards_preview(ctx: &Ctx, args: CardsArgs) -> Result<()> {
 
 pub async fn card(ctx: &Ctx, args: CardArgs) -> Result<()> {
     let path = format!("/api/games/{}/cards/{}", args.game, args.id);
-    let card: Card = ctx.client.get_json(&path, &[]).await?;
+    let detail: CardDetail = ctx.client.get_json(&path, &[]).await?;
     if ctx.printer.json {
-        ctx.printer.json(&card)?;
+        ctx.printer.json(&detail)?;
     } else {
-        card_detail(&card);
+        card_detail(&detail.card);
+        card_detail_extras(&detail);
     }
     Ok(())
 }
@@ -771,8 +773,8 @@ fn keywords_table(entries: &[Keyword]) {
 }
 
 /// One search across everything the catalog names — cards (one per distinct
-/// name), sealed products, preconstructed decks and rules keywords — each group
-/// capped at `--limit` and flagging whether more matched than fit.
+/// name), sets, sealed products, preconstructed decks and rules keywords — each
+/// group capped at `--limit` and flagging whether more matched than fit.
 pub async fn search(ctx: &Ctx, args: SearchArgs) -> Result<()> {
     let mut q: Vec<(&str, String)> = vec![("q", args.query)];
     push_opt(&mut q, "limit", &args.limit);
@@ -786,6 +788,7 @@ pub async fn search(ctx: &Ctx, args: SearchArgs) -> Result<()> {
     // Each group renders with the table its own listing uses.
     let shown = [
         search_group("Cards", &r.cards, cards_table),
+        search_group("Sets", &r.sets, sets_table),
         search_group("Sealed products", &r.products, products_table),
         search_group("Preconstructed decks", &r.precons, precons::precons_table),
         search_group("Keywords", &r.keywords, keywords_table),
