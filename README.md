@@ -133,7 +133,7 @@ tcglense set mtg sld --drops --drop 'happy'          # Secret Lair drops, filter
 tcglense releases mtg --from 2026-10-01 --to 2026-12-31   # what lands in a window, with what it ships
 tcglense cards mtg -q 'lightning bolt' --sort price --dir desc
 tcglense cards mtg -q 'kw:flying' --preview --limit 8     # first rows only, no (expensive) total
-tcglense search mtg 'sol ring'                      # cards, products, precons + keywords by name
+tcglense search mtg 'sol ring'                      # cards, sets, products, precons + keywords by name
 tcglense card mtg <card-id>                          # detail, incl. per-format legality
 tcglense prices mtg <card-id> --range 1y
 tcglense prints mtg <card-id>

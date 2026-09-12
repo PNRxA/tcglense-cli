@@ -164,16 +164,129 @@ pub fn card_detail(c: &Card) {
         }
     }
     println!(
-        "  Prices: USD {} · Foil {} · EUR {} · TIX {}",
+        "  Prices: USD {} · Foil {} · Etched {} · EUR {} · TIX {}",
         price(&c.prices.usd),
         price(&c.prices.usd_foil),
+        price(&c.prices.usd_etched),
         dash(&c.prices.eur),
         dash(&c.prices.tix)
     );
     if let Some(drop) = &c.drop_name {
-        println!("  Secret Lair drop: {drop}");
+        println!("  {}: {drop}", drop_label(&c.drop_noun));
     }
     print_legalities(c);
+}
+
+/// The heading for a card's `drop_name` row, from the set's `drop_noun`: the
+/// Secret Lair drop it belongs to, or the print treatment its set groups by.
+fn drop_label(noun: &Option<String>) -> String {
+    match noun.as_deref() {
+        None | Some("drop") => "Secret Lair drop".to_string(),
+        Some(other) => {
+            let mut c = other.chars();
+            match c.next() {
+                Some(first) => first.to_uppercase().collect::<String>() + c.as_str(),
+                None => "Group".to_string(),
+            }
+        }
+    }
+}
+
+/// Flavour text on one line: the faces of a multi-faced card (joined on the wire
+/// by `\n//\n`) stay split by ` // `, and any line break within a face — an
+/// attribution, a second stanza — becomes ` / `.
+fn flavor_line(text: &str) -> String {
+    text.replace("\n//\n", " // ").replace('\n', " / ")
+}
+
+/// The printing-level detail only the single-card route carries, after the card
+/// itself. Every line is skipped when the printing has nothing to say for it.
+pub fn card_detail_extras(d: &CardDetail) {
+    let mut printed = false;
+    let mut line = |label: &str, value: String| {
+        if !value.is_empty() {
+            if !printed {
+                println!();
+                printed = true;
+            }
+            println!("  {label}: {value}");
+        }
+    };
+    line("Artist", d.artist.clone().unwrap_or_default());
+    line(
+        "Flavor",
+        flavor_line(d.flavor_text.as_deref().unwrap_or("")),
+    );
+    line("Watermark", d.watermark.clone().unwrap_or_default());
+    line("Defense", d.defense.clone().unwrap_or_default());
+    line("Produces", d.produced_mana.join(""));
+    line("Finishes", d.finishes.join(", "));
+    line(
+        "Frame",
+        [
+            d.frame.as_deref().unwrap_or(""),
+            &d.frame_effects.join(", "),
+            d.border_color
+                .as_deref()
+                .map(|b| format!("{b} border"))
+                .unwrap_or_default()
+                .as_str(),
+            d.security_stamp
+                .as_deref()
+                .map(|s| format!("{s} stamp"))
+                .unwrap_or_default()
+                .as_str(),
+        ]
+        .into_iter()
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join(" · "),
+    );
+    line("Promo types", d.promo_types.join(", "));
+    let flags: Vec<&str> = [
+        (d.reserved, "reserved list"),
+        (d.promo, "promo"),
+        (d.variation, "variation"),
+        (d.full_art, "full art"),
+        (d.textless, "textless"),
+        (d.story_spotlight, "story spotlight"),
+        (d.content_warning, "content warning"),
+    ]
+    .into_iter()
+    .filter_map(|(on, name)| on.then_some(name))
+    .collect();
+    line("Flags", flags.join(", "));
+    let ranks: Vec<String> = [("EDHREC", d.edhrec_rank), ("Penny", d.penny_rank)]
+        .into_iter()
+        .filter_map(|(name, r)| r.map(|r| format!("{name} #{r}")))
+        .collect();
+    line("Rank", ranks.join(" · "));
+    let ids: Vec<String> = [
+        ("TCGplayer", d.tcgplayer_id),
+        ("TCGplayer etched", d.tcgplayer_etched_id),
+        ("Cardmarket", d.cardmarket_id),
+        ("MTGO", d.mtgo_id),
+        ("MTGO foil", d.mtgo_foil_id),
+        ("Arena", d.arena_id),
+    ]
+    .into_iter()
+    .filter_map(|(name, id)| id.map(|id| format!("{name} {id}")))
+    .chain((!d.multiverse_ids.is_empty()).then(|| {
+        format!(
+            "Multiverse {}",
+            d.multiverse_ids
+                .iter()
+                .map(|i| i.to_string())
+                .collect::<Vec<_>>()
+                .join("/")
+        )
+    }))
+    .collect();
+    line("IDs", ids.join(" · "));
+    line(
+        "Illustration",
+        d.illustration_id.clone().unwrap_or_default(),
+    );
 }
 
 /// Render a card's per-format legality. `not_legal` (a format the card was simply
@@ -355,12 +468,13 @@ pub fn apikeys_table(keys: &[ApiKeyInfo]) {
 }
 
 pub fn prices_table(points: &[PricePoint]) {
-    let mut t = table(&["Date", "USD", "Foil", "EUR", "TIX"]);
+    let mut t = table(&["Date", "USD", "Foil", "Etched", "EUR", "TIX"]);
     for p in points {
         t.add_row(vec![
             p.date.clone(),
             price(&p.usd),
             price(&p.usd_foil),
+            price(&p.usd_etched),
             dash(&p.eur),
             dash(&p.tix),
         ]);
@@ -389,6 +503,86 @@ mod tests {
         // Multi-byte characters must not be split mid-codepoint.
         let out = truncate("héllo wörld ☃☃☃", 6);
         assert!(out.chars().count() <= 6);
+    }
+
+    #[test]
+    fn drop_label_names_the_group_by_its_noun() {
+        assert_eq!(drop_label(&None), "Secret Lair drop");
+        assert_eq!(drop_label(&Some("drop".into())), "Secret Lair drop");
+        assert_eq!(drop_label(&Some("treatment".into())), "Treatment");
+        assert_eq!(drop_label(&Some(String::new())), "Group");
+    }
+
+    #[test]
+    fn flavor_line_keeps_the_face_separator() {
+        assert_eq!(flavor_line("One line."), "One line.");
+        assert_eq!(flavor_line("Quote.\n—Someone"), "Quote. / —Someone");
+        assert_eq!(flavor_line("Front.\n—A\n//\nBack."), "Front. / —A // Back.");
+    }
+
+    #[test]
+    fn card_detail_flattens_the_card_and_tolerates_missing_extras() {
+        let wire = serde_json::json!({
+            "id": "abc", "name": "Sol Ring", "set_code": "cmr", "set_name": "Commander Legends",
+            "collector_number": "1", "lang": "en", "has_image": true,
+            "prices": { "usd": "1.00", "usd_etched": "9.99" },
+            "artist": "Mike Bierek", "finishes": ["nonfoil", "etched"], "reserved": false,
+            "multiverse_ids": [1, 2], "tcgplayer_etched_id": 7
+        });
+        let d: CardDetail = serde_json::from_value(wire).unwrap();
+        assert_eq!(d.card.name, "Sol Ring");
+        assert_eq!(d.card.prices.usd_etched.as_deref(), Some("9.99"));
+        assert_eq!(d.card.prices.eur, None);
+        assert_eq!(d.artist.as_deref(), Some("Mike Bierek"));
+        assert_eq!(d.finishes, vec!["nonfoil", "etched"]);
+        assert_eq!(d.multiverse_ids, vec![1, 2]);
+        assert_eq!(d.tcgplayer_etched_id, Some(7));
+        assert!(d.frame_effects.is_empty());
+        // `--json` re-serialises the flattened shape: the card's fields sit at the top level.
+        let out = serde_json::to_value(&d).unwrap();
+        assert_eq!(out["name"], "Sol Ring");
+        assert_eq!(out["artist"], "Mike Bierek");
+        assert!(out.get("card").is_none());
+    }
+
+    #[test]
+    fn search_results_default_an_absent_sets_group() {
+        let empty = serde_json::json!({ "data": [], "has_more": false });
+        let wire = serde_json::json!({
+            "cards": empty, "products": empty, "precons": empty, "keywords": empty
+        });
+        let r: SearchResults = serde_json::from_value(wire).unwrap();
+        assert!(r.sets.data.is_empty());
+        assert!(!r.sets.has_more);
+    }
+
+    #[test]
+    fn search_results_decode_a_populated_sets_group() {
+        let empty = serde_json::json!({ "data": [], "has_more": false });
+        let wire = serde_json::json!({
+            "cards": empty, "products": empty, "precons": empty, "keywords": empty,
+            "sets": { "data": [{
+                "code": "slz", "name": "The Zeta Set", "card_count": 363,
+                "has_drops": true, "drop_noun": "treatment", "has_subtypes": false
+            }], "has_more": true }
+        });
+        let r: SearchResults = serde_json::from_value(wire).unwrap();
+        assert_eq!(r.sets.data.len(), 1);
+        assert!(r.sets.has_more);
+        assert_eq!(r.sets.data[0].drop_noun.as_deref(), Some("treatment"));
+    }
+
+    #[test]
+    fn price_point_decodes_usd_etched() {
+        let p: PricePoint = serde_json::from_value(serde_json::json!({
+            "date": "2026-09-12", "usd": null, "usd_foil": null, "usd_etched": "142.12",
+            "eur": null, "tix": "5.08"
+        }))
+        .unwrap();
+        assert_eq!(p.usd_etched.as_deref(), Some("142.12"));
+        let old: PricePoint =
+            serde_json::from_value(serde_json::json!({ "date": "2026-09-12" })).unwrap();
+        assert_eq!(old.usd_etched, None);
     }
 
     #[test]

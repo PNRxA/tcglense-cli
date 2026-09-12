@@ -76,6 +76,31 @@ Note the spec labels some genuine query parameters `in: path` (the goldfish/stat
 options), so the script treats a parameter as a query parameter when the path template
 has no `{placeholder}` for it, rather than trusting the label.
 
+That check is **request-side only**: it says nothing about response schemas. Because
+`--json` re-serialises the typed structs in `src/models.rs`, a response field a struct
+doesn't model is silently dropped from the CLI's output — that is how
+`CardDetailResponse`'s printing-level fields, the search `sets` group and `usd_etched`
+were missed while the request-side baseline was clean. The companion check covers
+that side:
+
+```sh
+scripts/check-schema-drift.py                      # diff live prod response schemas against src/models.rs
+scripts/check-schema-drift.py http://localhost:5173   # against a local/self-host API
+scripts/check-schema-drift.py path/to/openapi.json    # against an already-downloaded spec
+```
+
+It parses every `pub struct` in `src/models.rs` (honouring `#[serde(rename)]`,
+`#[serde(default)]` and `#[serde(flatten)]`), pairs each with its component schema
+(same name, then `<Name>Response`, then the `ALIASES` table in the script) and reports
+schema properties the struct lacks (**MISSING**, dropped from `--json`), struct fields
+the schema dropped (**STALE**), nullable / not-required properties modelled as a bare
+non-`Option` field (**NULLABILITY**, fails to decode), type and nested-ref mismatches,
+and response schemas no struct models at all (**UNMODELLED**). There is no baseline to
+refresh: the structs are the baseline. It exits non-zero on drift, needs only Python 3.
+When it flags a **MISSING** field, add it to the struct (with `#[serde(default)]` if
+older self-hosted APIs may omit it) and render it where the command prints that type;
+when a struct is renamed upstream, extend `ALIASES`.
+
 When it flags a new endpoint: add the command (an arg struct + handler in the right
 `src/commands/*.rs`, a `Command` variant in `src/cli.rs`, a dispatch arm in
 `src/commands/mod.rs`, a wire type in `src/models.rs` if needed, and a README example),

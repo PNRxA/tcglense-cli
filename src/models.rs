@@ -119,6 +119,11 @@ pub struct CardSet {
     pub icon_svg_uri: Option<String>,
     pub parent_set_code: Option<String>,
     pub has_drops: bool,
+    /// What one of the set's groups is called, singular and lowercase — `"drop"` for
+    /// Secret Lair, `"treatment"` for a print-treatment gallery. `None` when
+    /// `has_drops` is false.
+    #[serde(default)]
+    pub drop_noun: Option<String>,
     pub has_subtypes: bool,
 }
 
@@ -126,6 +131,9 @@ pub struct CardSet {
 pub struct CardPrices {
     pub usd: Option<String>,
     pub usd_foil: Option<String>,
+    /// The etched-foil price, for the printings that ship one. USD only.
+    #[serde(default)]
+    pub usd_etched: Option<String>,
     pub eur: Option<String>,
     pub tix: Option<String>,
 }
@@ -171,6 +179,9 @@ pub struct Card {
     pub has_image: bool,
     pub drop_name: Option<String>,
     pub drop_slug: Option<String>,
+    /// What `drop_name` names — `"drop"` or `"treatment"` — paired with it.
+    #[serde(default)]
+    pub drop_noun: Option<String>,
     #[serde(default)]
     pub secret_lair_bonus: bool,
     #[serde(default)]
@@ -179,11 +190,92 @@ pub struct Card {
     pub faces: Vec<CardFace>,
 }
 
+/// The single-card route's payload (`GET /api/games/{game}/cards/{id}`): the card as
+/// every listing shows it plus the printing-level detail only this route carries —
+/// artist, frame, finishes, promo tags, external ids and popularity ranks.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CardDetail {
+    #[serde(flatten)]
+    pub card: Card,
+    /// The illustrator credited on the printing; a multi-artist card carries every
+    /// name in one string, as printed.
+    pub artist: Option<String>,
+    /// Scryfall's stable ids for the artist(s) above, one per artist.
+    #[serde(default)]
+    pub artist_ids: Vec<String>,
+    /// The artwork's id — every printing of the same painting shares it.
+    pub illustration_id: Option<String>,
+    /// The printed flavour text; a multi-faced card's faces are joined by `\n//\n`.
+    pub flavor_text: Option<String>,
+    /// The printed watermark (a guild or faction mark), if any.
+    pub watermark: Option<String>,
+    /// The frame layout (`1993`, `2003`, `2015`, `future`, …).
+    pub frame: Option<String>,
+    /// Frame effects on the printing (`showcase`, `extendedart`, `legendary`, …).
+    #[serde(default)]
+    pub frame_effects: Vec<String>,
+    /// `black` / `white` / `silver` / `gold` / `borderless`.
+    pub border_color: Option<String>,
+    /// The holofoil security stamp (`oval`, `triangle`, `acorn`, `arena`, …), if any.
+    pub security_stamp: Option<String>,
+    /// The finishes this printing exists in — `nonfoil` / `foil` / `etched`.
+    #[serde(default)]
+    pub finishes: Vec<String>,
+    /// Scryfall's promo-type tags (`prerelease`, `buyabox`, `sldbonus`, …).
+    #[serde(default)]
+    pub promo_types: Vec<String>,
+    /// The colours of mana this card can produce.
+    #[serde(default)]
+    pub produced_mana: Vec<String>,
+    /// A Battle's printed defense box.
+    pub defense: Option<String>,
+    /// On the Reserved List — never to be reprinted.
+    #[serde(default)]
+    pub reserved: bool,
+    #[serde(default)]
+    pub full_art: bool,
+    #[serde(default)]
+    pub textless: bool,
+    #[serde(default)]
+    pub promo: bool,
+    /// A variation of another printing in the same set (alternate art, a different
+    /// frame).
+    #[serde(default)]
+    pub variation: bool,
+    /// A Story Spotlight card.
+    #[serde(default)]
+    pub story_spotlight: bool,
+    /// Carries the publisher's content warning.
+    #[serde(default)]
+    pub content_warning: bool,
+    /// Popularity rank on EDHREC (lower is more played); `None` when unranked.
+    pub edhrec_rank: Option<i64>,
+    /// Popularity rank in Penny Dreadful; `None` when unranked.
+    pub penny_rank: Option<i64>,
+    /// Gatherer multiverse ids — one per face for a double-faced card.
+    #[serde(default)]
+    pub multiverse_ids: Vec<i64>,
+    /// TCGplayer product id of the regular/foil printing.
+    pub tcgplayer_id: Option<i64>,
+    /// TCGplayer product id of the etched printing, when it is a distinct product.
+    pub tcgplayer_etched_id: Option<i64>,
+    /// Cardmarket product id.
+    pub cardmarket_id: Option<i64>,
+    /// Magic Online catalog id of the regular printing.
+    pub mtgo_id: Option<i64>,
+    /// Magic Online catalog id of the foil printing, when distinct.
+    pub mtgo_foil_id: Option<i64>,
+    /// MTG Arena id; only an Arena printing carries one.
+    pub arena_id: Option<i64>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PricePoint {
     pub date: String,
     pub usd: Option<String>,
     pub usd_foil: Option<String>,
+    #[serde(default)]
+    pub usd_etched: Option<String>,
     pub eur: Option<String>,
     pub tix: Option<String>,
 }
@@ -1960,6 +2052,15 @@ pub struct SearchGroup<T> {
     pub has_more: bool,
 }
 
+impl<T> Default for SearchGroup<T> {
+    fn default() -> Self {
+        SearchGroup {
+            data: Vec::new(),
+            has_more: false,
+        }
+    }
+}
+
 /// Everything the catalog knows that matches one query, grouped by kind. Every
 /// group carries the same wire shape its own listing does, so the rows render with
 /// the tables those listings already use.
@@ -1967,6 +2068,9 @@ pub struct SearchGroup<T> {
 pub struct SearchResults {
     /// Distinct card names, each as one representative printing.
     pub cards: SearchGroup<Card>,
+    /// Sets by name or exact set code, each as the set list shows it.
+    #[serde(default)]
+    pub sets: SearchGroup<CardSet>,
     /// Sealed products (boxes, bundles, decks) by name.
     pub products: SearchGroup<Product>,
     /// Preconstructed decks by name.
