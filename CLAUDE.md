@@ -76,6 +76,14 @@ Note the spec labels some genuine query parameters `in: path` (the goldfish/stat
 options), so the script treats a parameter as a query parameter when the path template
 has no `{placeholder}` for it, rather than trusting the label.
 
+The check is **request-side only**: it says nothing about response schemas. Because
+`--json` re-serialises the typed structs in `src/models.rs`, a response field the
+struct doesn't model is silently dropped from the CLI's output, so after a spec bump
+also diff the `components.schemas` the CLI's routes return (field names, types,
+nullability) against the matching structs — that is how `CardDetailResponse`'s
+printing-level fields, the search `sets` group and `usd_etched` were missed while the
+request-side baseline was clean.
+
 When it flags a new endpoint: add the command (an arg struct + handler in the right
 `src/commands/*.rs`, a `Command` variant in `src/cli.rs`, a dispatch arm in
 `src/commands/mod.rs`, a wire type in `src/models.rs` if needed, and a README example),

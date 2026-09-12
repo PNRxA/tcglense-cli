@@ -179,7 +179,7 @@ pub fn card_detail(c: &Card) {
 
 /// The heading for a card's `drop_name` row, from the set's `drop_noun`: the
 /// Secret Lair drop it belongs to, or the print treatment its set groups by.
-pub fn drop_label(noun: &Option<String>) -> String {
+fn drop_label(noun: &Option<String>) -> String {
     match noun.as_deref() {
         None | Some("drop") => "Secret Lair drop".to_string(),
         Some(other) => {
@@ -190,6 +190,13 @@ pub fn drop_label(noun: &Option<String>) -> String {
             }
         }
     }
+}
+
+/// Flavour text on one line: the faces of a multi-faced card (joined on the wire
+/// by `\n//\n`) stay split by ` // `, and any line break within a face — an
+/// attribution, a second stanza — becomes ` / `.
+fn flavor_line(text: &str) -> String {
+    text.replace("\n//\n", " // ").replace('\n', " / ")
 }
 
 /// The printing-level detail only the single-card route carries, after the card
@@ -208,7 +215,7 @@ pub fn card_detail_extras(d: &CardDetail) {
     line("Artist", d.artist.clone().unwrap_or_default());
     line(
         "Flavor",
-        d.flavor_text.as_deref().unwrap_or("").replace('\n', " / "),
+        flavor_line(d.flavor_text.as_deref().unwrap_or("")),
     );
     line("Watermark", d.watermark.clone().unwrap_or_default());
     line("Defense", d.defense.clone().unwrap_or_default());
@@ -507,16 +514,25 @@ mod tests {
     }
 
     #[test]
+    fn flavor_line_keeps_the_face_separator() {
+        assert_eq!(flavor_line("One line."), "One line.");
+        assert_eq!(flavor_line("Quote.\n—Someone"), "Quote. / —Someone");
+        assert_eq!(flavor_line("Front.\n—A\n//\nBack."), "Front. / —A // Back.");
+    }
+
+    #[test]
     fn card_detail_flattens_the_card_and_tolerates_missing_extras() {
         let wire = serde_json::json!({
             "id": "abc", "name": "Sol Ring", "set_code": "cmr", "set_name": "Commander Legends",
-            "collector_number": "1", "lang": "en", "prices": { "usd": "1.00" }, "has_image": true,
+            "collector_number": "1", "lang": "en", "has_image": true,
+            "prices": { "usd": "1.00", "usd_etched": "9.99" },
             "artist": "Mike Bierek", "finishes": ["nonfoil", "etched"], "reserved": false,
             "multiverse_ids": [1, 2], "tcgplayer_etched_id": 7
         });
         let d: CardDetail = serde_json::from_value(wire).unwrap();
         assert_eq!(d.card.name, "Sol Ring");
-        assert_eq!(d.card.prices.usd_etched, None);
+        assert_eq!(d.card.prices.usd_etched.as_deref(), Some("9.99"));
+        assert_eq!(d.card.prices.eur, None);
         assert_eq!(d.artist.as_deref(), Some("Mike Bierek"));
         assert_eq!(d.finishes, vec!["nonfoil", "etched"]);
         assert_eq!(d.multiverse_ids, vec![1, 2]);
@@ -538,6 +554,35 @@ mod tests {
         let r: SearchResults = serde_json::from_value(wire).unwrap();
         assert!(r.sets.data.is_empty());
         assert!(!r.sets.has_more);
+    }
+
+    #[test]
+    fn search_results_decode_a_populated_sets_group() {
+        let empty = serde_json::json!({ "data": [], "has_more": false });
+        let wire = serde_json::json!({
+            "cards": empty, "products": empty, "precons": empty, "keywords": empty,
+            "sets": { "data": [{
+                "code": "slz", "name": "The Zeta Set", "card_count": 363,
+                "has_drops": true, "drop_noun": "treatment", "has_subtypes": false
+            }], "has_more": true }
+        });
+        let r: SearchResults = serde_json::from_value(wire).unwrap();
+        assert_eq!(r.sets.data.len(), 1);
+        assert!(r.sets.has_more);
+        assert_eq!(r.sets.data[0].drop_noun.as_deref(), Some("treatment"));
+    }
+
+    #[test]
+    fn price_point_decodes_usd_etched() {
+        let p: PricePoint = serde_json::from_value(serde_json::json!({
+            "date": "2026-09-12", "usd": null, "usd_foil": null, "usd_etched": "142.12",
+            "eur": null, "tix": "5.08"
+        }))
+        .unwrap();
+        assert_eq!(p.usd_etched.as_deref(), Some("142.12"));
+        let old: PricePoint =
+            serde_json::from_value(serde_json::json!({ "date": "2026-09-12" })).unwrap();
+        assert_eq!(old.usd_etched, None);
     }
 
     #[test]
